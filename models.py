@@ -3,12 +3,13 @@ from torch import nn
 
 from vit import _make_pretrained_vitb_rn50_384, forward_vit, forward_flex
 
+
 class Cerberus(nn.Module):
     def __init__(
         self,
         head,
         features=256,
-        readout='project',
+        readout="project",
         channels_last=False,
         use_bn=False,
         enable_attention_hooks=False,
@@ -58,13 +59,27 @@ class CerberusSegmentationModelMultiHead(Cerberus):
         super().__init__(head, **kwargs)
 
         self.full_output_task_list = (
-            (2, ['Wood', 'Painted', 'Paper', 'Glass', 'Brick', 'Metal',
-             'Flat', 'Plastic', 'Textured', 'Glossy', 'Shiny']),
-            (2, ['L', 'M', 'R', 'S', 'W']),
-            (40, ['Segmentation'])
+            (
+                2,
+                [
+                    "Wood",
+                    "Painted",
+                    "Paper",
+                    "Glass",
+                    "Brick",
+                    "Metal",
+                    "Flat",
+                    "Plastic",
+                    "Textured",
+                    "Glossy",
+                    "Shiny",
+                ],
+            ),
+            (2, ["L", "M", "R", "S", "W"]),
+            (40, ["Segmentation"]),
         )
 
-        self.add_module('sigma', nn.Module())
+        self.add_module("sigma", nn.Module())
 
         # 这里为什么重复设置sigma.Parameter，我先给注释掉吧。
         # self.sigma.attribute_sigmas = nn.Parameter(torch.Tensor(1).uniform_(-1.60, 0.0), requires_grad=True)
@@ -76,35 +91,51 @@ class CerberusSegmentationModelMultiHead(Cerberus):
         # self.sigma.sub_seg_sigmas = nn.Parameter(torch.Tensor(len(full_output_task_list[2][1])).uniform_(-1.60, 0.0), requires_grad=True)
 
         self.sigma.attribute_sigmas = nn.Parameter(
-            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True)
+            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True
+        )
         self.sigma.affordance_sigmas = nn.Parameter(
-            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True)
+            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True
+        )
         self.sigma.seg_sigmas = nn.Parameter(
-            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True)
+            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True
+        )
 
-        self.sigma.sub_attribute_sigmas = nn.Parameter(torch.Tensor(
-            len(self.full_output_task_list[0][1])).uniform_(0.20, 1.0), requires_grad=True)
-        self.sigma.sub_affordance_sigmas = nn.Parameter(torch.Tensor(
-            len(self.full_output_task_list[1][1])).uniform_(0.20, 1.0), requires_grad=True)
-        self.sigma.sub_seg_sigmas = nn.Parameter(torch.Tensor(
-            len(self.full_output_task_list[2][1])).uniform_(0.20, 1.0), requires_grad=True)
+        self.sigma.sub_attribute_sigmas = nn.Parameter(
+            torch.Tensor(len(self.full_output_task_list[0][1])).uniform_(0.20, 1.0),
+            requires_grad=True,
+        )
+        self.sigma.sub_affordance_sigmas = nn.Parameter(
+            torch.Tensor(len(self.full_output_task_list[1][1])).uniform_(0.20, 1.0),
+            requires_grad=True,
+        )
+        self.sigma.sub_seg_sigmas = nn.Parameter(
+            torch.Tensor(len(self.full_output_task_list[2][1])).uniform_(0.20, 1.0),
+            requires_grad=True,
+        )
 
         for (num_classes, output_task_list) in self.full_output_task_list:
             for it in output_task_list:
-                setattr(self.scratch, "output_" + it, nn.Sequential(
-                    nn.Conv2d(features, features, kernel_size=3,
-                              padding=1, bias=False),
-                    nn.BatchNorm2d(features),
-                    nn.ReLU(True),
-                    nn.Dropout(0.1, False),
-                    nn.Conv2d(features, num_classes, kernel_size=1),
-                ))
+                setattr(
+                    self.scratch,
+                    "output_" + it,
+                    nn.Sequential(
+                        nn.Conv2d(
+                            features, features, kernel_size=3, padding=1, bias=False
+                        ),
+                        nn.BatchNorm2d(features),
+                        nn.ReLU(True),
+                        nn.Dropout(0.1, False),
+                        nn.Conv2d(features, num_classes, kernel_size=1),
+                    ),
+                )
 
-                setattr(self.scratch, "output_" + it + '_upsample',
-                        nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-                        )
+                setattr(
+                    self.scratch,
+                    "output_" + it + "_upsample",
+                    nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
+                )
 
-    def get_attention(self, x ,name):
+    def get_attention(self, x, name):
         if self.channels_last == True:
             x.contiguous(memory_format=torch.channels_last)
 
@@ -123,29 +154,29 @@ class CerberusSegmentationModelMultiHead(Cerberus):
         layer_3_rn = self.scratch.layer3_rn(layer_3)
         layer_4_rn = self.scratch.layer4_rn(layer_4)
 
-        if (index == 0):
+        if index == 0:
             path_4 = self.scratch.refinenet04(layer_4_rn)
             path_3 = self.scratch.refinenet03(path_4, layer_3_rn)
             path_2 = self.scratch.refinenet02(path_3, layer_2_rn)
             path_1 = self.scratch.refinenet01(path_2, layer_1_rn)
-        elif (index == 1):
+        elif index == 1:
             path_4 = self.scratch.refinenet08(layer_4_rn)
             path_3 = self.scratch.refinenet07(path_4, layer_3_rn)
             path_2 = self.scratch.refinenet06(path_3, layer_2_rn)
             path_1 = self.scratch.refinenet05(path_2, layer_1_rn)
-        elif(index == 2):
+        elif index == 2:
             path_4 = self.scratch.refinenet12(layer_4_rn)
             path_3 = self.scratch.refinenet11(path_4, layer_3_rn)
             path_2 = self.scratch.refinenet10(path_3, layer_2_rn)
             path_1 = self.scratch.refinenet09(path_2, layer_1_rn)
         else:
-            raise ValueError(f'Not support index: {index}')
+            raise ValueError(f"Not support index: {index}")
 
         outs = []
         for it in self.full_output_task_list[index][1]:
             func = eval("self.scratch.output_" + it)
             out = func(path_1)
-            func = eval("self.scratch.output_" + it + '_upsample')
+            func = eval("self.scratch.output_" + it + "_upsample")
             out = func(out)
             outs.append(out)
 
@@ -206,14 +237,10 @@ class ResidualConvUnit(nn.Module):
         # 这里为什么不直接使用torch.add，甚至是“+”呢
         return self.skip_add.add(out, x)
 
+
 class FeatureFusionBlock(nn.Module):
     def __init__(
-        self,
-        features,
-        activation,
-        bn=False,
-        expand=False,
-        align_corners=True,
+        self, features, activation, bn=False, expand=False, align_corners=True,
     ):
         super(FeatureFusionBlock, self).__init__()
 
@@ -239,7 +266,9 @@ class FeatureFusionBlock(nn.Module):
 
         self.skip_add = nn.quantized.FloatFunctional()
 
-        self.interpolate = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=align_corners)
+        self.interpolate = nn.Upsample(
+            scale_factor=2, mode="bilinear", align_corners=align_corners
+        )
 
     def forward(self, *xs):
         output = xs[0]
@@ -255,6 +284,7 @@ class FeatureFusionBlock(nn.Module):
         output = self.out_conv(output)
 
         return output
+
 
 def _make_encoder(
     features,
@@ -278,6 +308,7 @@ def _make_encoder(
     )  # ViT-H/16 - 85.0% Top1 (backbone)
 
     return pretrained, scratch
+
 
 def _make_scratch(in_shape, out_shape, groups=1, expand=False):
     scratch = nn.Module()
@@ -331,6 +362,7 @@ def _make_scratch(in_shape, out_shape, groups=1, expand=False):
     )
 
     return scratch
+
 
 def _make_fusion_block(features, use_bn):
     return FeatureFusionBlock(

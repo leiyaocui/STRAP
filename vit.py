@@ -112,7 +112,6 @@ def forward_vit(pretrained, x):
     layer_3 = pretrained.activations["3"]
     layer_4 = pretrained.activations["4"]
 
-
     layer_1 = pretrained.act_postprocess1[0:2](layer_1)
     layer_2 = pretrained.act_postprocess2[0:2](layer_2)
     layer_3 = pretrained.act_postprocess3[0:2](layer_3)
@@ -164,7 +163,7 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
     return posemb
 
 
-def forward_flex(self, x, attn = False, name = None):
+def forward_flex(self, x, attn=False, name=None):
     b, c, h, w = x.shape
 
     pos_embed = self._resize_pos_embed(
@@ -199,18 +198,30 @@ def forward_flex(self, x, attn = False, name = None):
         if (attn == False) or (i < len(self.blocks) - 1):
             x = blk(x)
         else:
-            x, attentions  = blk(x,True)
+            x, attentions = blk(x, True)
             nh = attentions.shape[1]
             token = 0
             attentions = attentions[0, :, token, 1:].reshape(nh, -1)
-            attentions = attentions.reshape(nh, h // self.patch_size[0], w // self.patch_size[1])
-            attentions = nn.functional.interpolate(attentions.unsqueeze(0), scale_factor=self.patch_size[0], mode="nearest")[0].cpu().numpy()
+            attentions = attentions.reshape(
+                nh, h // self.patch_size[0], w // self.patch_size[1]
+            )
+            attentions = (
+                nn.functional.interpolate(
+                    attentions.unsqueeze(0),
+                    scale_factor=self.patch_size[0],
+                    mode="nearest",
+                )[0]
+                .cpu()
+                .numpy()
+            )
             for j in range(nh):
                 folder = name
                 if not os.path.exists(folder):
                     os.makedirs(folder)
-                fname =  os.path.join(folder ,str(token)+"_attn-head" + str(j) + ".png")
-                plt.imsave(fname=fname, arr=attentions[j], format='png')
+                fname = os.path.join(
+                    folder, str(token) + "_attn-head" + str(j) + ".png"
+                )
+                plt.imsave(fname=fname, arr=attentions[j], format="png")
                 print(f"{fname} saved.")
 
     x = self.norm(x)

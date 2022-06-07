@@ -14,9 +14,11 @@ class RandomCrop(object):
             self.size = size
 
     def __call__(self, image, label, *args):
-        assert label is None or image.size == label.size, \
-            "image and label doesn't have the same size {} / {}".format(
-                image.size, label.size)
+        assert (
+            label is None or image.size == label.size
+        ), "image and label doesn't have the same size {} / {}".format(
+            image.size, label.size
+        )
 
         w, h = image.size
         tw, th = self.size
@@ -28,10 +30,8 @@ class RandomCrop(object):
             top = (th - h) // 2
             bottom = th - h - top
         if left > 0 or right > 0 or top > 0 or bottom > 0:
-            label = pad_image(
-                'constant', label, top, bottom, left, right, value=255)
-            image = pad_image(
-                'reflection', image, top, bottom, left, right)
+            label = pad_image("constant", label, top, bottom, left, right, value=255)
+            image = pad_image("reflection", image, top, bottom, left, right)
         w, h = image.size
         if w == tw and h == th:
             return (image, label, *args)
@@ -44,6 +44,7 @@ class RandomCrop(object):
         results.extend(args)
         return results
 
+
 class RandomCropMultiHead(object):
     def __init__(self, size):
         if isinstance(size, numbers.Number):
@@ -52,9 +53,11 @@ class RandomCropMultiHead(object):
             self.size = size
 
     def __call__(self, image, label, *args):
-        assert label is None or (image.size == label[0].size), \
-            "image and label doesn't have the same size {} / {}".format(
-                image.size, label[0].size)
+        assert label is None or (
+            image.size == label[0].size
+        ), "image and label doesn't have the same size {} / {}".format(
+            image.size, label[0].size
+        )
 
         w, h = image.size
         tw, th = self.size
@@ -67,10 +70,10 @@ class RandomCropMultiHead(object):
             bottom = th - h - top
         if left > 0 or right > 0 or top > 0 or bottom > 0:
             for idx, img in enumerate(label):
-                label[idx] = pad_image('constant', \
-                    img, top, bottom, left, right, value=255)
-            image = pad_image(
-                'reflection', image, top, bottom, left, right)
+                label[idx] = pad_image(
+                    "constant", img, top, bottom, left, right, value=255
+                )
+            image = pad_image("reflection", image, top, bottom, left, right)
         w, h = image.size
         if w == tw and h == th:
             return (image, label, *args)
@@ -104,8 +107,11 @@ class RandomScale(object):
             interpolation = Image.ANTIALIAS
         else:
             interpolation = Image.CUBIC
-        return image.resize((tw, th), interpolation), \
-               label.resize((tw, th), Image.NEAREST)
+        return (
+            image.resize((tw, th), interpolation),
+            label.resize((tw, th), Image.NEAREST),
+        )
+
 
 class RandomScaleMultiHead(object):
     def __init__(self, scale):
@@ -129,6 +135,7 @@ class RandomScaleMultiHead(object):
 
         return image.resize((tw, th), interpolation), label
 
+
 class RandomRotate(object):
     """Crops the given PIL.Image at a random location to have a region of
     the given size. size can be a tuple (target_height, target_width)
@@ -146,14 +153,15 @@ class RandomRotate(object):
         angle = random.randint(0, self.angle * 2) - self.angle
 
         if label is not None:
-            label = pad_image('constant', label, h, h, w, w, value=255)
+            label = pad_image("constant", label, h, h, w, w, value=255)
             label = label.rotate(angle, resample=Image.NEAREST)
             label = label.crop((w, h, w + w, h + h))
 
-        image = pad_image('reflection', image, h, h, w, w)
+        image = pad_image("reflection", image, h, h, w, w)
         image = image.rotate(angle, resample=Image.BILINEAR)
         image = image.crop((w, h, w + w, h + h))
         return image, label
+
 
 class RandomRotateMultiHead(object):
     """Crops the given PIL.Image at a random location to have a region of
@@ -176,14 +184,15 @@ class RandomRotateMultiHead(object):
         # repeat identifying that 'label' is None or not.
         if label is not None:
             for idx, img in enumerate(label):
-                label[idx] = pad_image('constant', img, h, h, w, w, value=255)
+                label[idx] = pad_image("constant", img, h, h, w, w, value=255)
                 label[idx] = label[idx].rotate(angle, resample=Image.NEAREST)
                 label[idx] = label[idx].crop((w, h, w + w, h + h))
 
-        image = pad_image('reflection', image, h, h, w, w)
+        image = pad_image("reflection", image, h, h, w, w)
         image = image.rotate(angle, resample=Image.BILINEAR)
         image = image.crop((w, h, w + w, h + h))
         return image, label
+
 
 class RandomHorizontalFlip(object):
     """Randomly horizontally flips the given PIL.Image with a probability of 0.5
@@ -191,11 +200,14 @@ class RandomHorizontalFlip(object):
 
     def __call__(self, image, label):
         if random.random() < 0.5:
-            results = [image.transpose(Image.FLIP_LEFT_RIGHT),
-                       label.transpose(Image.FLIP_LEFT_RIGHT)]
+            results = [
+                image.transpose(Image.FLIP_LEFT_RIGHT),
+                label.transpose(Image.FLIP_LEFT_RIGHT),
+            ]
         else:
             results = [image, label]
         return results
+
 
 class RandomHorizontalFlipMultiHead(object):
     """Randomly horizontally flips the given PIL.Image with a probability of 0.5
@@ -206,12 +218,10 @@ class RandomHorizontalFlipMultiHead(object):
             label_result = list()
             for it in label:
                 label_result.append(it.transpose(Image.FLIP_LEFT_RIGHT))
-            results = [image.transpose(Image.FLIP_LEFT_RIGHT),
-                       label_result]
+            results = [image.transpose(Image.FLIP_LEFT_RIGHT), label_result]
         else:
             results = [image, label]
         return results
-
 
 
 class Normalize(object):
@@ -228,7 +238,7 @@ class Normalize(object):
         for t, m, s in zip(image, self.mean, self.std):
             t.sub_(m).div_(s)
         if label is None:
-            return image,
+            return (image,)
         else:
             return image, label
 
@@ -254,13 +264,12 @@ def pad_reflection(image, top, bottom, left, right):
     new_shape[0] += top + bottom
     new_shape[1] += left + right
     new_image = np.empty(new_shape, dtype=image.dtype)
-    new_image[top:top+h, left:left+w] = image
-    new_image[:top, left:left+w] = image[top:0:-1, :]
-    new_image[top+h:, left:left+w] = image[-1:-bottom-1:-1, :]
-    new_image[:, :left] = new_image[:, left*2:left:-1]
-    new_image[:, left+w:] = new_image[:, -right-1:-right*2-1:-1]
-    return pad_reflection(new_image, next_top, next_bottom,
-                          next_left, next_right)
+    new_image[top : top + h, left : left + w] = image
+    new_image[:top, left : left + w] = image[top:0:-1, :]
+    new_image[top + h :, left : left + w] = image[-1 : -bottom - 1 : -1, :]
+    new_image[:, :left] = new_image[:, left * 2 : left : -1]
+    new_image[:, left + w :] = new_image[:, -right - 1 : -right * 2 - 1 : -1]
+    return pad_reflection(new_image, next_top, next_bottom, next_left, next_right)
 
 
 def pad_constant(image, top, bottom, left, right, value):
@@ -272,19 +281,21 @@ def pad_constant(image, top, bottom, left, right, value):
     new_shape[1] += left + right
     new_image = np.empty(new_shape, dtype=image.dtype)
     new_image.fill(value)
-    new_image[top:top+h, left:left+w] = image
+    new_image[top : top + h, left : left + w] = image
     return new_image
 
 
 def pad_image(mode, image, top, bottom, left, right, value=0):
-    if mode == 'reflection':
+    if mode == "reflection":
         return Image.fromarray(
-            pad_reflection(np.asarray(image), top, bottom, left, right))
-    elif mode == 'constant':
+            pad_reflection(np.asarray(image), top, bottom, left, right)
+        )
+    elif mode == "constant":
         return Image.fromarray(
-            pad_constant(np.asarray(image), top, bottom, left, right, value))
+            pad_constant(np.asarray(image), top, bottom, left, right, value)
+        )
     else:
-        raise ValueError('Unknown mode {}'.format(mode))
+        raise ValueError("Unknown mode {}".format(mode))
 
 
 class Pad(object):
@@ -292,42 +303,68 @@ class Pad(object):
 
     def __init__(self, padding, fill=0):
         assert isinstance(padding, numbers.Number)
-        assert isinstance(fill, numbers.Number) or isinstance(fill, str) or \
-               isinstance(fill, tuple)
+        assert (
+            isinstance(fill, numbers.Number)
+            or isinstance(fill, str)
+            or isinstance(fill, tuple)
+        )
         self.padding = padding
         self.fill = fill
 
     def __call__(self, image, label=None, *args):
         if label is not None:
             label = pad_image(
-                'constant', label,
-                self.padding, self.padding, self.padding, self.padding,
-                value=255)
+                "constant",
+                label,
+                self.padding,
+                self.padding,
+                self.padding,
+                self.padding,
+                value=255,
+            )
         if self.fill == -1:
             image = pad_image(
-                'reflection', image,
-                self.padding, self.padding, self.padding, self.padding)
+                "reflection",
+                image,
+                self.padding,
+                self.padding,
+                self.padding,
+                self.padding,
+            )
         else:
             image = pad_image(
-                'constant', image,
-                self.padding, self.padding, self.padding, self.padding,
-                value=self.fill)
+                "constant",
+                image,
+                self.padding,
+                self.padding,
+                self.padding,
+                self.padding,
+                value=self.fill,
+            )
         return (image, label, *args)
 
 
 class PadImage(object):
     def __init__(self, padding, fill=0):
         assert isinstance(padding, numbers.Number)
-        assert isinstance(fill, numbers.Number) or isinstance(fill, str) or \
-               isinstance(fill, tuple)
+        assert (
+            isinstance(fill, numbers.Number)
+            or isinstance(fill, str)
+            or isinstance(fill, tuple)
+        )
         self.padding = padding
         self.fill = fill
 
     def __call__(self, image, label=None, *args):
         if self.fill == -1:
             image = pad_image(
-                'reflection', image,
-                self.padding, self.padding, self.padding, self.padding)
+                "reflection",
+                image,
+                self.padding,
+                self.padding,
+                self.padding,
+                self.padding,
+            )
         else:
             image = ImageOps.expand(image, border=self.padding, fill=self.fill)
         return (image, label, *args)
@@ -346,7 +383,7 @@ class ToTensor(object):
             # handle PIL Image
             img = torch.ByteTensor(torch.ByteStorage.from_buffer(pic.tobytes()))
             # PIL image mode: 1, L, P, I, F, RGB, YCbCr, RGBA, CMYK
-            if pic.mode == 'YCbCr':
+            if pic.mode == "YCbCr":
                 nchannel = 3
             else:
                 nchannel = len(pic.mode)
@@ -356,9 +393,10 @@ class ToTensor(object):
             img = img.transpose(0, 1).transpose(0, 2).contiguous()
         img = img.float().div(255)
         if label is None:
-            return img,
+            return (img,)
         else:
             return img, torch.LongTensor(np.array(label, dtype=np.int))
+
 
 class ToTensorMultiHead(object):
     """Converts a PIL.Image or numpy.ndarray (H x W x C) in the range
@@ -373,7 +411,7 @@ class ToTensorMultiHead(object):
             # handle PIL Image
             img = torch.ByteTensor(torch.ByteStorage.from_buffer(pic.tobytes()))
             # PIL image mode: 1, L, P, I, F, RGB, YCbCr, RGBA, CMYK
-            if pic.mode == 'YCbCr':
+            if pic.mode == "YCbCr":
                 nchannel = 3
             else:
                 nchannel = len(pic.mode)
@@ -383,13 +421,14 @@ class ToTensorMultiHead(object):
             img = img.transpose(0, 1).transpose(0, 2).contiguous()
         img = img.float().div(255)
         if label is None:
-            return img,
+            return (img,)
         else:
             result_label = list()
             for it in label:
                 img_np_array = np.array(it, dtype=np.int)
                 result_label.append(torch.LongTensor(img_np_array))
             return img, result_label
+
 
 class Compose(object):
     """Composes several transforms together.
