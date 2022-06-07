@@ -1,0 +1,17 @@
+mode: test
+
+data_dir: ../dataset/nyud2
+
+crop_size: 512
+
+workers: 12
+batch_size: 1
+
+resume: ''
+pretrained: ''
+pretrained_model: ''
+
+scales:
+- 0.9
+- 1
+- 1.25
