@@ -17,4 +17,6 @@ lr_mode: 'poly'
 momentum: 0.9
 weight_decay: 0.0001
 
+save_dir: 'output'
+
 resume: ''

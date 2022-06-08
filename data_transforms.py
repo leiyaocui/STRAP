@@ -178,10 +178,8 @@ class RandomRotateMultiHead(object):
 
         w, h = image.size
         p = max((h, w))
-        # why not use random.randint(-self.angle, self.angle)
         angle = random.randint(0, self.angle * 2) - self.angle
 
-        # repeat identifying that 'label' is None or not.
         if label is not None:
             for idx, img in enumerate(label):
                 label[idx] = pad_image("constant", img, h, h, w, w, value=255)

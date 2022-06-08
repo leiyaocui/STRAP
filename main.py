@@ -2,7 +2,7 @@ import os
 import numpy as np
 import yaml
 import shutil
-import threading
+from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -27,6 +27,7 @@ class CerberusTrain:
         config = yaml.safe_load(open(yaml_path, "r"))
 
         self.mode = config["mode"]
+        self.save_dir = config["save_dir"]
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -50,10 +51,11 @@ class CerberusTrain:
         ]
 
         self.model = CerberusSegmentationModelMultiHead()
-        if torch.cuda.device_count() > 1:
-            self.model = torch.nn.DataParallel(self.model)
+        # if torch.cuda.device_count() > 1:
+        #     self.model = torch.nn.DataParallel(self.model)
         self.model = self.model.to(self.device)
 
+        # 这里为什么忽略255
         self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
         self.criterion = self.criterion.to(self.device)
 
@@ -93,7 +95,7 @@ class CerberusTrain:
             self.train_loader = DataLoader(
                 ConcatSegList(dataset_at_train, dataset_af_train, dataset_seg_train),
                 batch_size=config["batch_size"],
-                shuffle=False,
+                shuffle=True,
                 num_workers=config["workers"],
                 pin_memory=True,
                 drop_last=True,
@@ -204,7 +206,7 @@ class CerberusTrain:
         self.start_epoch = 0
 
         if os.path.isfile(config["resume"]):
-            print(f"loading checkpoint '{config['resume']}'")
+            print(f"Loading checkpoint, resume file: {config['resume']}")
             checkpoint = torch.load(config["resume"])
             self.start_epoch = checkpoint["epoch"]
             self.best_prec1 = checkpoint["best_prec1"]
@@ -214,11 +216,9 @@ class CerberusTrain:
                     for k, v in checkpoint["state_dict"].items()
                 }
             )
-            print(
-                f"loaded checkpoint '{config['resume']}' (epoch {checkpoint['epoch']})"
-            )
+            print(f"Loaded checkpoint, resume epoch: {checkpoint['epoch']}")
         else:
-            print(f"no checkpoint found at '{config['resume']}'")
+            print(f"No checkpoint found")
 
         self.writer = SummaryWriter()
 
@@ -244,10 +244,11 @@ class CerberusTrain:
                     "state_dict": self.model.state_dict(),
                     "best_prec1": self.best_prec1,
                 }
-                save_dir = "output/model"
+                save_dir = os.path.join(self.save_dir, "model")
                 self.save_checkpoint(state, is_best, save_dir)
         elif self.mode == "test":
-            self.test(save_vis=self.save_vis, have_gt=self.have_gt)
+            save_dir = os.path.join(self.save_dir, "test_pred_img")
+            self.test(save_dir, save_vis=self.save_vis, have_gt=self.have_gt)
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
 
@@ -265,16 +266,15 @@ class CerberusTrain:
             )
             score_list.append(AverageMeter())
 
-        for task_data_pair in self.train_loader:
+        for task_data_pair in tqdm(
+            self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80
+        ):
             grads = {}
             task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.to(self.device)
                 target = [target[i].to(self.device) for i in range(len(target))]
                 output = self.model(input, task_i)
-                assert len(output) == len(target) and len(
-                    self.task_list[task_i]
-                ) == len(target)
 
                 self.optimizer.zero_grad(set_to_none=True)
 
@@ -292,7 +292,6 @@ class CerberusTrain:
                 task_loss.append(loss)
                 loss_list[task_i].update(loss.item(), input.shape[0])
 
-                # 为什么只需要记录这些gradient，这里再看一下论文怎么说的？
                 grads[self.task_root_list[task_i]] = []
                 for cnt in self.model.pretrained.parameters():
                     if cnt.grad is not None:
@@ -311,15 +310,15 @@ class CerberusTrain:
                 )
 
                 score = []
-                # 计算IoU时，为什么不一样？或许是每个task要求不一样，前两个只看对的，最后那个看类别
+                # 计算IoU时，为什么不一样？或许是每个task要求不一样，前两个只看对的，最后那个看类别？
                 if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(ious[1])
+                        score.append(ious[1].item())
                 elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(np.mean(ious))
+                        score.append(torch.mean(ious).item())
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
@@ -372,7 +371,9 @@ class CerberusTrain:
             )
             score_list.append(AverageMeter())
 
-        for task_data_pair in self.val_loader:
+        for task_data_pair in tqdm(
+            self.val_loader, desc=f"[Val] Epoch {epoch+1:04d}", ncols=80
+        ):
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.to(self.device)
                 target = [
@@ -396,11 +397,11 @@ class CerberusTrain:
                 if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(ious[1])
+                        score.append(ious[1].item())
                 elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(np.mean(ious))
+                        score.append(torch.mean(ious).item())
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
@@ -429,7 +430,7 @@ class CerberusTrain:
         return score
 
     @torch.no_grad()
-    def test(self, save_vis=False, have_gt=False):
+    def test(self, save_dir, save_vis, have_gt):
         self.model.eval()
 
         score_list = [AverageMeter() for _ in range(len(self.task_root_list))]
@@ -443,13 +444,9 @@ class CerberusTrain:
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
-                task_list = self.task_list[task_i]
-                iou_compute_cmd = "per_class_iu(hist_list[task_i][idx])"
-                if task_i < 2:
-                    iou_compute_cmd = "[" + iou_compute_cmd + "[1]]"
-
-                name = data[-1]
+                name = data[-1][0]
                 print(f"File name: {name}")
+                name = os.path.basename(name)
 
                 base_input = data[0]
                 ms_input = data[-2]
@@ -462,36 +459,37 @@ class CerberusTrain:
                 for input in ms_input:
                     input = input.to(self.device)
                     output = self.model(input, task_i)
-                    output = F.interpolate(
-                        output,
-                        base_input.shape[2:],
-                        mode="bilinear",
-                        align_corners=True,
-                    )
+                    for idx in range(len(output)):
+                        output[idx] = (
+                            F.interpolate(
+                                output[idx],
+                                base_input.shape[2:],
+                                mode="bilinear",
+                                align_corners=True,
+                            )
+                            .cpu()
+                            .numpy()
+                        )
                     ms_output.append(output)
 
-                ms_output = torch.sum(torch.as_tensor(ms_output), dim=0)
-                output = ms_output.argmax(dim=1)
+                ms_output = torch.as_tensor(np.array(ms_output))
+                output = ms_output.sum(dim=0)
 
                 if save_vis:
                     assert ".png" in name or ".jpg" in name or ".bmp" in name
                     for idx in range(len(output)):
-                        file_name = (
-                            os.path.basename(name)[:-4] + self.task_list[idx] + ".png"
-                        )
-                        save_dir = "output/test_pred_img"
-                        save_image(output[idx], file_name, save_dir)
+                        file_name = f"{self.task_root_list[task_i]}/{self.task_list[task_i][idx]}/{name[:-4]}.png"
+                        pred = output[idx].argmax(dim=1)
+                        save_image(pred, file_name, save_dir)
                         save_colorful_image(
-                            output[idx], file_name, save_dir + "_color", PALETTE
+                            pred, file_name, f"{save_dir}_color", PALETTE
                         )
 
                         if task_i == 2:
-                            gt_name = (
-                                os.path.basename(name)[:-4] + task_list[idx] + "_gt.png"
-                            )
+                            gt_name = f"{self.task_root_list[task_i]}/{self.task_list[task_i][idx]}/{name[:-4]}_gt.png"
                             label_mask = target[idx] == 255
                             save_colorful_image(
-                                (target[idx] - label_mask * 255).numpy(),
+                                target[idx] - label_mask * 255,
                                 gt_name,
                                 save_dir + "_color",
                                 PALETTE,
@@ -502,18 +500,18 @@ class CerberusTrain:
                     if task_i < 2:
                         for idx in range(len(output)):
                             ious = mIoU(output[idx], target[idx])
-                            score.append(ious[1])
+                            score.append(ious[1].item())
                     elif task_i == 2:
                         for idx in range(len(output)):
                             ious = mIoU(output[idx], target[idx])
-                            score.append(np.mean(ious))
+                            score.append(torch.mean(ious).item())
                     else:
                         raise ValueError(f"Not support task_i: {task_i}")
 
                     score = np.mean(score)
                     score_list[task_i].update(score, input[0].shape[0])
 
-                    print(f"Task {self.task_root_list[task_i]:.2f} score: {score}")
+                    print(f"Task {self.task_root_list[task_i]} score: {score:.2f}")
 
         if have_gt:
             score = np.mean(
@@ -536,38 +534,6 @@ class CerberusTrain:
                 save_dir, f"checkpoint_{state['epoch']:04d}.pth"
             )
             shutil.copyfile(checkpoint_path, history_path)
-
-    # def resize_4d_tensor(self, tensor, width, height):
-    #     tensor_cpu = tensor.cpu().numpy()
-    #     if tensor.size(2) == height and tensor.size(3) == width:
-    #         return tensor_cpu
-    #     out_size = (tensor.size(0), tensor.size(1), height, width)
-    #     out = np.empty(out_size, dtype=np.float32)
-
-    #     def resize_one(i, j):
-    #         out[i, j] = np.array(
-    #             Image.fromarray(tensor_cpu[i, j]).resize(
-    #                 (width, height), Image.BILINEAR
-    #             )
-    #         )
-
-    #     def resize_channel(j):
-    #         for i in range(tensor.size(0)):
-    #             out[i, j] = np.array(
-    #                 Image.fromarray(tensor_cpu[i, j]).resize(
-    #                     (width, height), Image.BILINEAR
-    #                 )
-    #             )
-
-    #     workers = [
-    #         threading.Thread(target=resize_channel, args=(j,))
-    #         for j in range(tensor.size(1))
-    #     ]
-    #     for w in workers:
-    #         w.start()
-    #     for w in workers:
-    #         w.join()
-    #     return out
 
 
 if __name__ == "__main__":

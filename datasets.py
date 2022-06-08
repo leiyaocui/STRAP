@@ -55,8 +55,6 @@ class SegMultiHeadList(torch.utils.data.Dataset):
         if self.label_list is not None:
             data.append([Image.open(i) for i in self.label_list[index]])
 
-        data = list(self.transforms(*data))
-
         if self.ms_scale is not None:
             w, h = (640, 480)
             ms_data = [
@@ -68,6 +66,10 @@ class SegMultiHeadList(torch.utils.data.Dataset):
                 )[0]
                 for s in self.ms_scale
             ]
+            
+        data = list(self.transforms(*data))
+
+        if self.ms_scale is not None:
             data.append(ms_data)
 
         if self.out_name:

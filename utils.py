@@ -4,22 +4,21 @@ import numpy as np
 import torch
 
 
-def fast_hist(pred, label, n):
-    k = (label >= 0) & (label < n)
-    return np.bincount(n * label[k].astype(int) + pred[k], minlength=n ** 2).reshape(
-        n, n
-    )
+@torch.no_grad()
+def fast_hist(pred, target, n):
+    k = (target >= 0) & (target < n)
+    return torch.bincount(n * target[k].int() + pred[k], minlength=n ** 2).reshape(n, n)
 
 
+@torch.no_grad()
 def per_class_iu(hist):
-    return np.diag(hist) / (hist.sum(axis=1) + hist.sum(axis=0) - np.diag(hist) + 1e-12)
+    return torch.diag(hist) / (hist.sum(dim=1) + hist.sum(dim=0) - torch.diag(hist) + 1e-12)
 
 
+@torch.no_grad()
 def mIoU(output, target):
     num_classes = output.shape[1]
     pred = output.argmax(dim=1)
-    pred = pred.cpu().numpy()
-    target = target.cpu().numpy()
     hist = fast_hist(pred.flatten(), target.flatten(), num_classes)
     ious = per_class_iu(hist) * 100
     return ious
@@ -257,16 +256,24 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
 
+@torch.no_grad()
 def save_image(data, file_name, save_dir):
-    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, file_name)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    data = data.cpu().numpy().squeeze()
     img = Image.fromarray(data.astype(np.uint8))
-    img.save(os.path.join(save_dir, file_name))
+    img.save(save_path)
 
 
+@torch.no_grad()
 def save_colorful_image(data, file_name, save_dir, palettes):
-    os.makedirs(save_dir, exist_ok=True)
-    img = Image.fromarray(palettes[data.squeeze()])
-    img.save(os.path.join(save_dir, file_name))
+    save_path = os.path.join(save_dir, file_name)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    data = data.cpu().numpy().squeeze()
+    img = Image.fromarray(palettes[data])
+    img.save(save_path)
 
 
 CITYSCAPE_PALETTE = np.asarray(
