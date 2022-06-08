@@ -157,8 +157,6 @@ class CerberusTrain:
             self.save_vis = config["save_vis"]
             self.have_gt = config["have_gt"]
 
-            assert self.have_gt == True
-
             test_tf = transforms.Compose(
                 [
                     transforms.ToTensorMultiHead(),

@@ -12,6 +12,6 @@ workers: 12
 batch_size: 1
 
 save_vis: true
-have_gt: false
+have_gt: true
 
 resume: 'output/model/model_best.pth'
