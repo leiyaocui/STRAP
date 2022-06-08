@@ -3,6 +3,7 @@ import numpy as np
 import yaml
 import shutil
 from tqdm import tqdm
+from datetime import datetime
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -27,9 +28,10 @@ class CerberusTrain:
         config = yaml.safe_load(open(yaml_path, "r"))
 
         self.mode = config["mode"]
-        self.save_dir = config["save_dir"]
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.save_dir = os.path.join(
+            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
+        os.makedirs(self.save_dir, exist_ok=True)
 
         self.task_root_list = ["At", "Af", "Seg"]
         self.task_list = [
@@ -51,16 +53,19 @@ class CerberusTrain:
         ]
 
         self.model = CerberusSegmentationModelMultiHead()
-        # if torch.cuda.device_count() > 1:
-        #     self.model = torch.nn.DataParallel(self.model)
-        self.model = self.model.to(self.device)
-
-        # 这里为什么忽略255
-        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
-        self.criterion = self.criterion.to(self.device)
 
         if self.mode == "train":
             self.epochs = config["epochs"]
+
+            self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
+
+            # if torch.cuda.device_count() > 1:
+            #     self.model = torch.nn.DataParallel(self.model)
+            self.model = self.model.cuda()
+
+            # 这里为什么忽略255
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
+            self.criterion = self.criterion.cuda()
 
             train_tf = []
 
@@ -132,7 +137,7 @@ class CerberusTrain:
             self.optimizer = torch.optim.SGD(
                 [
                     {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
-                    {"params": self.model.scratch.parameters(), "lr": config["lr"],},
+                    {"params": self.model.scratch.parameters(), "lr": config["lr"]},
                     {
                         "params": self.model.sigma.parameters(),
                         "lr": config["lr"] * 0.01,
@@ -153,6 +158,8 @@ class CerberusTrain:
             self.scheduler = torch.optim.lr_scheduler.LambdaLR(
                 self.optimizer, lr_lambda=lambda_func
             )
+
+            torch.backends.cudnn.benchmark = True
 
         elif self.mode == "test":
             self.ms_scales = config["ms_scales"]
@@ -195,32 +202,27 @@ class CerberusTrain:
                 batch_size=config["batch_size"],
                 shuffle=False,
                 num_workers=config["workers"],
-                pin_memory=False,
             )
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
 
-        torch.backends.cudnn.benchmark = True
-
-        self.best_prec1 = 0
+        self.best_score = 0
         self.start_epoch = 0
 
         if os.path.isfile(config["resume"]):
-            print(f"Loading checkpoint, resume file: {config['resume']}")
             checkpoint = torch.load(config["resume"])
             self.start_epoch = checkpoint["epoch"]
-            self.best_prec1 = checkpoint["best_prec1"]
+            self.best_score = checkpoint["best_score"]
             self.model.load_state_dict(
                 {
                     k.replace("module.", ""): v
                     for k, v in checkpoint["state_dict"].items()
                 }
             )
-            print(f"Loaded checkpoint, resume epoch: {checkpoint['epoch']}")
+            print(f"Loaded checkpoint")
+            print(f"Epoch: {checkpoint['epoch']}\tScore: {checkpoint['best_score']:02f}")
         else:
             print(f"No checkpoint found")
-
-        self.writer = SummaryWriter()
 
     def exec(self):
         if self.mode == "train":
@@ -235,14 +237,14 @@ class CerberusTrain:
                 )
 
                 self.train(epoch)
-                prec1 = self.validate(epoch)
+                score = self.validate(epoch)
 
-                is_best = prec1 > self.best_prec1
-                self.best_prec1 = max(prec1, self.best_prec1)
+                is_best = score > self.best_score
+                self.best_score = max(score, self.best_score)
                 state = {
                     "epoch": epoch + 1,
                     "state_dict": self.model.state_dict(),
-                    "best_prec1": self.best_prec1,
+                    "best_score": self.best_score,
                 }
                 save_dir = os.path.join(self.save_dir, "model")
                 self.save_checkpoint(state, is_best, save_dir)
@@ -272,8 +274,8 @@ class CerberusTrain:
             grads = {}
             task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
-                input = input.to(self.device)
-                target = [target[i].to(self.device) for i in range(len(target))]
+                input = input.cuda(non_blocking=True)
+                target = [target[i].cuda(non_blocking=True) for i in range(len(target))]
                 output = self.model(input, task_i)
 
                 self.optimizer.zero_grad(set_to_none=True)
@@ -375,11 +377,8 @@ class CerberusTrain:
             self.val_loader, desc=f"[Val] Epoch {epoch+1:04d}", ncols=80
         ):
             for task_i, (input, target) in enumerate(task_data_pair):
-                input = input.to(self.device)
-                target = [
-                    target[i].to(self.device, non_blocking=True)
-                    for i in range(len(target))
-                ]
+                input = input.cuda(non_blocking=True)
+                target = [target[i].cuda(non_blocking=True) for i in range(len(target))]
 
                 output = self.model(input, task_i)
 
@@ -457,7 +456,7 @@ class CerberusTrain:
                 ms_output = []
 
                 for input in ms_input:
-                    input = input.to(self.device)
+                    input = input
                     output = self.model(input, task_i)
                     for idx in range(len(output)):
                         output[idx] = (
@@ -537,5 +536,6 @@ class CerberusTrain:
 
 
 if __name__ == "__main__":
-    cerberus = CerberusTrain("test.yaml")
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    cerberus = CerberusTrain("train.yaml")
     cerberus.exec()
