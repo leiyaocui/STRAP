@@ -13,7 +13,7 @@ class ConcatSegList(torch.utils.data.Dataset):
         assert len(self.at) == len(self.af) and len(self.af) == len(self.seg)
 
     def __getitem__(self, index):
-        return (self.at[index], self.af[index], self.seg[index])
+        return self.at[index], self.af[index], self.seg[index]
 
     def __len__(self):
         return len(self.at)
@@ -21,12 +21,13 @@ class ConcatSegList(torch.utils.data.Dataset):
 
 class SegMultiHeadList(torch.utils.data.Dataset):
     def __init__(
-        self, data_dir, phase, transforms, ms_scale=None,
+        self, data_dir, phase, transforms, ms_scale=None, out_name=False
     ):
         self.data_dir = data_dir
         self.phase = phase
         self.transforms = transforms
         self.ms_scale = ms_scale
+        self.out_name = out_name
 
         self.image_list = None
         self.label_list = None
@@ -40,20 +41,20 @@ class SegMultiHeadList(torch.utils.data.Dataset):
         ]
         if os.path.exists(label_path):
             self.label_list = [
-                os.path.join(self.data_dir, line.strip())
+                [os.path.join(self.data_dir, line_split.strip()) for line_split in line.split(",")]
                 for line in open(label_path, "r")
             ]
             assert len(self.image_list) == len(self.label_list)
 
     def __getitem__(self, index):
-        data = Image.open(self.image_list[index])
+        data = np.array(Image.open(self.image_list[index]))
+        # 这里stack的逻辑需要考察一下，感觉跟criterion有点问题。
         if len(data.shape) == 2:
             data = np.stack([data, data, data], axis=2)
         data = [Image.fromarray(data)]
 
         if self.label_list is not None:
-            label_data = [Image.open(i) for i in self.label_list[index].split(",")]
-            data.append(label_data)
+            data.append([Image.open(i) for i in self.label_list[index]])
 
         data = list(self.transforms(*data))
 
@@ -69,8 +70,10 @@ class SegMultiHeadList(torch.utils.data.Dataset):
                 )[0]
                 for s in self.ms_scale
             ]
-            data.append(self.image_list[index])
             data.extend(ms_images)
+
+        if self.out_name:
+            data.append(self.image_list[index])
 
         return tuple(data)
 
