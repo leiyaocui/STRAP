@@ -11,9 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from datasets import SegMultiHeadList, ConcatSegList
 import data_transforms as transforms
-from min_norm_solvers import MinNormSolver
 from models import CerberusSegmentationModelMultiHead
-from utils import mIoU
+from utils import mIoU, MinNormSolver
 
 
 class CerberusTrain:
@@ -283,13 +282,10 @@ class CerberusTrain:
     def exec(self):
         if self.mode == "train":
             for epoch in range(self.start_epoch, self.epochs):
-                self.writer.add_text(
-                    f"Epoch: {epoch}",
-                    f"[Train] pretrained_lr: {self.scheduler.get_last_lr()[0]:.06f}",
-                )
-                self.writer.add_text(
-                    f"Epoch: {epoch}",
-                    f"[Train] scratch_lr: {self.scheduler.get_last_lr()[1]:.06f}",
+                self.writer.add_scalars(
+                    f"train_lr",
+                    {'pretrained': self.scheduler.get_last_lr()[0], 'scratch': self.scheduler.get_last_lr()[1]},
+                    global_step=epoch,
                 )
 
                 self.train(epoch)
@@ -304,7 +300,7 @@ class CerberusTrain:
                 }
                 self.save_checkpoint(state, is_best)
         elif self.mode == "test":
-            self.test(save_vis=True, has_gt=False, output_dir="output")
+            self.test(save_vis=True, have_gt=False, output_dir="output")
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
 
@@ -333,6 +329,8 @@ class CerberusTrain:
                     self.task_list[task_i]
                 ) == len(target)
 
+                self.optimizer.zero_grad(set_to_none=True)
+
                 loss = []
                 for idx in range(len(output)):
                     loss_single = self.criterion(output[idx], target[idx])
@@ -342,11 +340,11 @@ class CerberusTrain:
                     )
 
                 loss = sum(loss)
-                task_loss.append(loss)
-                loss_list[task_i].update(loss.item(), input.shape[0])
+                loss.backward(retain_graph=True)
 
-                self.optimizer.zero_grad(set_to_none=True)
-                loss.backward()
+                task_loss.append(loss)                
+                loss_list[task_i].update(loss.item(), input.shape[0])               
+                
 
                 # 为什么只需要记录这些gradient，这里再看一下论文怎么说的？
                 grads[self.task_root_list[task_i]] = []
@@ -367,38 +365,36 @@ class CerberusTrain:
                 )
 
                 score = []
-                # 计算IoU时，为什么不一样？
+                # 计算IoU时，为什么不一样？或许是每个task要求不一样，前两个只看对的，最后那个看类别
                 if task_i < len(self.task_root_list) - 1:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        ious = np.round(np.nanmean(ious[1]), 2)
-                        score.append(ious)
+                        score.append(ious[1])
                 elif task_i == len(self.task_root_list) - 1:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        ious = np.round(np.nanmean(ious), 2)
-                        score.append(ious)
+                        score.append(np.mean(ious))
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
                 score_list[task_i].update(np.mean(score), input.shape[0])
 
-
             sol, min_norm = MinNormSolver.find_min_norm_element(
                 [grads[i] for i in self.task_root_list]
             )
 
-            self.writer.add_text(
-                f"Epoch: {epoch}",
-                f"[Train] Scale: |{sol[0]:.4f}|, |{sol[1]:.4f}|, |{sol[2]:.4f}|",
+            self.writer.add_scalars(
+                f"train_min_norm_scale",
+                {'sol_0': sol[0], 'sol_1': sol[1], 'sol_2': sol[2]},
+                global_step=epoch*len(self.train_loader) + i
             )
 
-            loss = 0
-            for idx in range(len(self.task_root_list)):
-                loss += sol[idx] * task_loss[idx]
-
             self.optimizer.zero_grad(set_to_none=True)
+
+            loss = [sol[i] * task_loss[i] for i in range(len(self.task_root_list))]
+            loss = sum(loss)
             loss.backward()
+
             self.optimizer.step()
 
         for i, it in enumerate(self.task_root_list):
@@ -422,11 +418,10 @@ class CerberusTrain:
         loss_list = []
         loss_per_task_list = []
         score_list = []
-        score = AverageMeter()
 
         for i in range(len(self.task_root_list)):
             loss_list.append(AverageMeter())
-            loss_per_task_list.append([AverageMeter() for _ in len(self.task_list[i])])
+            loss_per_task_list.append([AverageMeter() for _ in range(len(self.task_list[i]))])
             score_list.append(AverageMeter())
 
         for i, task_data_pair in enumerate(self.val_loader):
@@ -454,21 +449,16 @@ class CerberusTrain:
                 if task_i < len(self.task_root_list) - 1:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        ious = np.round(np.nanmean(ious[1]), 2)
-                        score.append(ious)
+                        score.append(ious[1])
                 elif task_i == len(self.task_root_list) - 1:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        ious = np.round(np.nanmean(ious), 2)
-                        score.append(ious)
+                        score.append(np.mean(ious))
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
                 score_list[task_i].update(np.mean(score), input.shape[0])
 
-            score.update(
-                np.nanmean([score_list[i].val for i in range(len(self.task_root_list))])
-            )
 
         for i, it in enumerate(self.task_root_list):
             self.writer.add_scalar(
@@ -484,20 +474,22 @@ class CerberusTrain:
                     global_step=epoch,
                 )
 
-        self.writer.add_text(f"Epoch: {epoch}", f"[Val] Score: {score.avg:.3f}")
-        self.writer.add_scalar("val_score_avg", score.avg, global_step=epoch)
+        score = np.mean([score_list[i].avg for i in range(len(self.task_root_list))])
+        self.writer.add_text(
+            f"[Val] Average Score", f"Epoch_{epoch}: {score:.3f}", global_step=epoch
+        )
+        self.writer.add_scalar("val_score_avg", score, global_step=epoch)
 
-        return score.avg
+        return score
 
     @torch.no_grad()
-    def test(self, save_vis=False, has_gt=False, output_dir=None):
+    def test(self, save_vis=False, have_gt=False, output_dir=None):
         self.model.eval()
-
-        task_name = ["Attribute", "Affordance", "Segmentation"]
 
         hist_array_array = []
         hist_array_array_acc = []
-        for i in range(len(self.task_root_list)):
+        # need to adjust for specific task group or mimic another code which I have lost their location.
+        for i in range(3):
             if i < 2:
                 num_classes = 2
             elif i == 2:
@@ -517,25 +509,25 @@ class CerberusTrain:
                 ]
             )
 
-        for i, in_tar_pair in enumerate(self.test_loader):
-            for index, input in enumerate(in_tar_pair):
-                if index < 2:
+        for i, task_data_pair in enumerate(self.test_loader):
+            for task_i, input in enumerate(task_data_pair):
+                if task_i < 2:
                     num_classes = 2
                     PALETTE = CerberusTrain.AFFORDANCE_PALETTE
-                elif index == 2:
+                elif task_i == 2:
                     num_classes = 40
                     PALETTE = CerberusTrain.NYU40_PALETTE
                 else:
-                    raise ValueError(f"Wrong index: {index}")
+                    raise ValueError(f"Wrong task_i: {task_i}")
 
-                task_list = self.task_list[index]
-                iou_compute_cmd = "per_class_iu(hist_array_array[index][idx])"
+                task_list = self.task_list[task_i]
+                iou_compute_cmd = "per_class_iu(hist_array_array[task_i][idx])"
                 if num_classes == 2:
                     iou_compute_cmd = "[" + iou_compute_cmd + "[1]]"
 
                 num_scales = len(self.scales)
 
-                if has_gt:
+                if have_gt:
                     name = input[2]
                     label = input[1]
                 else:
@@ -549,7 +541,7 @@ class CerberusTrain:
 
                 for image in images:
                     image = image.to(self.device)
-                    final = self.model(image, index)
+                    final = self.model(image, task_i)
                     outputs.append([entity.data for entity in final])
 
                 final = []
@@ -569,7 +561,7 @@ class CerberusTrain:
                         self.save_colorful_images(
                             pred[idx], file_name, output_dir + "_color", PALETTE
                         )
-                        if index == 2:
+                        if task_i == 2:
                             gt_name = (name[0][:-4] + task_list[idx] + "_gt.png",)
                             label_mask = label[idx] == 255
 
@@ -580,16 +572,16 @@ class CerberusTrain:
                                 PALETTE,
                             )
 
-                if has_gt:
+                if have_gt:
                     map_score_array = []
                     for idx in range(len(label)):
                         pred[idx] = pred[idx].flatten()
                         label[idx] = label[idx].numpy().flatten()
-                        hist_array_array[index][idx] = np.bincount(
+                        hist_array_array[task_i][idx] = np.bincount(
                             num_classes * label[idx].astype(int) + pred[idx],
                             minlength=num_classes ** 2,
                         ).reshape(num_classes, num_classes)
-                        hist_array_array_acc[index][idx] += hist_array_array[index][idx]
+                        hist_array_array_acc[task_i][idx] += hist_array_array[task_i][idx]
 
                         map_score_array.append(
                             round(
@@ -612,18 +604,18 @@ class CerberusTrain:
                         self.writer.add_text(
                             "Test",
                             "===> task${}$ mAP {mAP:.3f}".format(
-                                task_name[index],
+                                task_name[task_i],
                                 mAP=round(np.nanmean(map_score_array), 2),
                             ),
                         )
 
-        if has_gt:
+        if have_gt:
             ious_array = []
-            for index, iter in enumerate(hist_array_array_acc):
+            for task_i, iter in enumerate(hist_array_array_acc):
                 ious = []
                 for idx, _ in enumerate(iter):
-                    iou_compute_cmd = "per_class_iu(hist_array_array_acc[index][idx])"
-                    if index < 2:
+                    iou_compute_cmd = "per_class_iu(hist_array_array_acc[task_i][idx])"
+                    if task_i < 2:
                         iou_compute_cmd = "[" + iou_compute_cmd + "[1]]"
                     tmp_result = [i * 100.0 for i in eval(iou_compute_cmd)]
                     ious.append(tmp_result)
@@ -639,14 +631,16 @@ class CerberusTrain:
 
             return round(np.nanmean([np.nanmean(i) for i in ious_array]), 2)
 
-    def save_checkpoint(self, state, is_best):
+    def save_checkpoint(self, state, is_best, backup_freq=10):
+        os.makedirs('model', exist_ok=True)
+
         file_path = "model/checkpoint_latest.pth"
         torch.save(state, file_path)
 
         if is_best:
             shutil.copyfile(file_path, "model/model_best.pth")
 
-        if state["epoch"] % 10 == 0:
+        if state["epoch"] % backup_freq == 0:
             history_path = f'model/checkpoint_{state["epoch"]:03d}.pth'
             shutil.copyfile(file_path, history_path)
 
