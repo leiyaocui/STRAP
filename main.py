@@ -1,95 +1,28 @@
 import os
 import numpy as np
-from PIL import Image
 import yaml
 import shutil
 import threading
-from timm.utils import AverageMeter
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from datasets import SegMultiHeadList, ConcatSegList
 import data_transforms as transforms
 from models import CerberusSegmentationModelMultiHead
-from utils import mIoU, MinNormSolver
+from utils import (
+    mIoU,
+    MinNormSolver,
+    AverageMeter,
+    AFFORDANCE_PALETTE,
+    NYU40_PALETTE,
+    save_image,
+    save_colorful_image,
+)
 
 
 class CerberusTrain:
-    CITYSCAPE_PALETTE = np.asarray(
-        [
-            [128, 64, 128],
-            [244, 35, 232],
-            [70, 70, 70],
-            [102, 102, 156],
-            [190, 153, 153],
-            [153, 153, 153],
-            [250, 170, 30],
-            [220, 220, 0],
-            [107, 142, 35],
-            [152, 251, 152],
-            [70, 130, 180],
-            [220, 20, 60],
-            [255, 0, 0],
-            [0, 0, 142],
-            [0, 0, 70],
-            [0, 60, 100],
-            [0, 80, 100],
-            [0, 0, 230],
-            [119, 11, 32],
-            [0, 0, 0],
-        ],
-        dtype=np.uint8,
-    )
-
-    NYU40_PALETTE = np.asarray(
-        [
-            [0, 0, 0],
-            [0, 0, 80],
-            [0, 0, 160],
-            [0, 0, 240],
-            [0, 80, 0],
-            [0, 80, 80],
-            [0, 80, 160],
-            [0, 80, 240],
-            [0, 160, 0],
-            [0, 160, 80],
-            [0, 160, 160],
-            [0, 160, 240],
-            [0, 240, 0],
-            [0, 240, 80],
-            [0, 240, 160],
-            [0, 240, 240],
-            [80, 0, 0],
-            [80, 0, 80],
-            [80, 0, 160],
-            [80, 0, 240],
-            [80, 80, 0],
-            [80, 80, 80],
-            [80, 80, 160],
-            [80, 80, 240],
-            [80, 160, 0],
-            [80, 160, 80],
-            [80, 160, 160],
-            [80, 160, 240],
-            [80, 240, 0],
-            [80, 240, 80],
-            [80, 240, 160],
-            [80, 240, 240],
-            [160, 0, 0],
-            [160, 0, 80],
-            [160, 0, 160],
-            [160, 0, 240],
-            [160, 80, 0],
-            [160, 80, 80],
-            [160, 80, 160],
-            [160, 80, 240],
-        ],
-        dtype=np.uint8,
-    )
-
-    AFFORDANCE_PALETTE = np.asarray([[0, 0, 0], [255, 255, 255]], dtype=np.uint8)
-
     def __init__(self, yaml_path):
         config = yaml.safe_load(open(yaml_path, "r"))
 
@@ -117,8 +50,8 @@ class CerberusTrain:
         ]
 
         self.model = CerberusSegmentationModelMultiHead()
-        # if torch.cuda.device_count() > 1:
-        #     self.model = torch.nn.DataParallel(self.model)
+        if torch.cuda.device_count() > 1:
+            self.model = torch.nn.DataParallel(self.model)
         self.model = self.model.to(self.device)
 
         self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
@@ -193,29 +126,25 @@ class CerberusTrain:
                 drop_last=True,
             )
 
+            # 这里学习率是这么设置吗？
             self.optimizer = torch.optim.SGD(
                 [
                     {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
+                    {"params": self.model.scratch.parameters(), "lr": config["lr"],},
                     {
-                        "params": self.model.scratch.parameters(),
+                        "params": self.model.sigma.parameters(),
                         "lr": config["lr"] * 0.01,
                     },
                 ],
-                # {'params': sel.model.sigma.parameters(), 'lr': config['lr'] * 0.01}],
                 momentum=config["momentum"],
                 weight_decay=config["weight_decay"],
             )
 
             if config["lr_mode"] == "step":
-
-                def lambda_func(e):
-                    return 0.1 ** (e // config["step"])
+                lambda_func = lambda e: 0.1 ** (e // config["step"])
 
             elif config["lr_mode"] == "poly":
-
-                def lambda_func(e):
-                    return (1 - e / self.epochs) ** 0.9
-
+                lambda_func = lambda e: (1 - e / self.epochs) ** 0.9
             else:
                 raise ValueError(f'Unknown lr mode {config["lr_mode"]}')
 
@@ -225,6 +154,10 @@ class CerberusTrain:
 
         elif self.mode == "test":
             self.ms_scales = config["ms_scales"]
+            self.save_vis = config["save_vis"]
+            self.have_gt = config["have_gt"]
+
+            assert self.have_gt == True
 
             test_tf = transforms.Compose(
                 [
@@ -236,13 +169,25 @@ class CerberusTrain:
             )
 
             dataset_at_test = SegMultiHeadList(
-                config["data_dir"], "var_attribute", test_tf, ms_scale=self.ms_scales
+                config["data_dir"],
+                "val_attribute",
+                test_tf,
+                ms_scale=self.ms_scales,
+                out_name=True,
             )
             dataset_af_test = SegMultiHeadList(
-                config["data_dir"], "var_affordance", test_tf, scale=self.scales,
+                config["data_dir"],
+                "val_affordance",
+                test_tf,
+                ms_scale=self.ms_scales,
+                out_name=True,
             )
             dataset_seg_test = SegMultiHeadList(
-                config["data_dir"], "var", test_tf, ms_scale=self.ms_scales
+                config["data_dir"],
+                "val",
+                test_tf,
+                ms_scale=self.ms_scales,
+                out_name=True,
             )
 
             self.test_loader = DataLoader(
@@ -284,7 +229,10 @@ class CerberusTrain:
             for epoch in range(self.start_epoch, self.epochs):
                 self.writer.add_scalars(
                     f"train_lr",
-                    {'pretrained': self.scheduler.get_last_lr()[0], 'scratch': self.scheduler.get_last_lr()[1]},
+                    {
+                        "pretrained": self.scheduler.get_last_lr()[0],
+                        "scratch": self.scheduler.get_last_lr()[1],
+                    },
                     global_step=epoch,
                 )
 
@@ -298,9 +246,10 @@ class CerberusTrain:
                     "state_dict": self.model.state_dict(),
                     "best_prec1": self.best_prec1,
                 }
-                self.save_checkpoint(state, is_best)
+                save_dir = "output/model"
+                self.save_checkpoint(state, is_best, save_dir)
         elif self.mode == "test":
-            self.test(save_vis=True, have_gt=False, output_dir="output")
+            self.test(save_vis=self.save_vis, have_gt=self.have_gt)
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
 
@@ -318,7 +267,7 @@ class CerberusTrain:
             )
             score_list.append(AverageMeter())
 
-        for i, task_data_pair in enumerate(self.train_loader):
+        for task_data_pair in self.train_loader:
             grads = {}
             task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
@@ -342,9 +291,8 @@ class CerberusTrain:
                 loss = sum(loss)
                 loss.backward(retain_graph=True)
 
-                task_loss.append(loss)                
-                loss_list[task_i].update(loss.item(), input.shape[0])               
-                
+                task_loss.append(loss)
+                loss_list[task_i].update(loss.item(), input.shape[0])
 
                 # 为什么只需要记录这些gradient，这里再看一下论文怎么说的？
                 grads[self.task_root_list[task_i]] = []
@@ -366,11 +314,11 @@ class CerberusTrain:
 
                 score = []
                 # 计算IoU时，为什么不一样？或许是每个task要求不一样，前两个只看对的，最后那个看类别
-                if task_i < len(self.task_root_list) - 1:
+                if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
                         score.append(ious[1])
-                elif task_i == len(self.task_root_list) - 1:
+                elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
                         score.append(np.mean(ious))
@@ -383,11 +331,11 @@ class CerberusTrain:
                 [grads[i] for i in self.task_root_list]
             )
 
-            self.writer.add_scalars(
-                f"train_min_norm_scale",
-                {'sol_0': sol[0], 'sol_1': sol[1], 'sol_2': sol[2]},
-                global_step=epoch*len(self.train_loader) + i
-            )
+            # self.writer.add_scalars(
+            #     f"train_min_norm_scale",
+            #     {'sol_0': sol[0], 'sol_1': sol[1], 'sol_2': sol[2]},
+            #     global_step=epoch*len(self.train_loader) + data_i
+            # )
 
             self.optimizer.zero_grad(set_to_none=True)
 
@@ -421,10 +369,12 @@ class CerberusTrain:
 
         for i in range(len(self.task_root_list)):
             loss_list.append(AverageMeter())
-            loss_per_task_list.append([AverageMeter() for _ in range(len(self.task_list[i]))])
+            loss_per_task_list.append(
+                [AverageMeter() for _ in range(len(self.task_list[i]))]
+            )
             score_list.append(AverageMeter())
 
-        for i, task_data_pair in enumerate(self.val_loader):
+        for task_data_pair in self.val_loader:
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.to(self.device)
                 target = [
@@ -445,12 +395,11 @@ class CerberusTrain:
                 loss_list[task_i].update(loss.item(), input.shape[0])
 
                 score = []
-                # 计算IoU时，为什么不一样？
-                if task_i < len(self.task_root_list) - 1:
+                if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
                         score.append(ious[1])
-                elif task_i == len(self.task_root_list) - 1:
+                elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
                         score.append(np.mean(ious))
@@ -458,7 +407,6 @@ class CerberusTrain:
                     raise ValueError(f"Not support task_i: {task_i}")
 
                 score_list[task_i].update(np.mean(score), input.shape[0])
-
 
         for i, it in enumerate(self.task_root_list):
             self.writer.add_scalar(
@@ -483,227 +431,148 @@ class CerberusTrain:
         return score
 
     @torch.no_grad()
-    def test(self, save_vis=False, have_gt=False, output_dir=None):
+    def test(self, save_vis=False, have_gt=False):
         self.model.eval()
 
-        hist_array_array = []
-        hist_array_array_acc = []
-        # need to adjust for specific task group or mimic another code which I have lost their location.
-        for i in range(3):
-            if i < 2:
-                num_classes = 2
-            elif i == 2:
-                num_classes = 40
-            else:
-                raise ValueError(f"Wrong nunm_classes: {num_classes}")
-            hist_array_array.append(
-                [
-                    np.zeros((num_classes, num_classes))
-                    for _ in range(len(self.task_list[i]))
-                ]
-            )
-            hist_array_array_acc.append(
-                [
-                    np.zeros((num_classes, num_classes))
-                    for _ in range(len(self.task_list[i]))
-                ]
-            )
+        score_list = [AverageMeter() for _ in range(len(self.task_root_list))]
 
-        for i, task_data_pair in enumerate(self.test_loader):
-            for task_i, input in enumerate(task_data_pair):
+        for task_data_pair in self.test_loader:
+            for task_i, data in enumerate(task_data_pair):
                 if task_i < 2:
-                    num_classes = 2
-                    PALETTE = CerberusTrain.AFFORDANCE_PALETTE
+                    PALETTE = AFFORDANCE_PALETTE
                 elif task_i == 2:
-                    num_classes = 40
-                    PALETTE = CerberusTrain.NYU40_PALETTE
+                    PALETTE = NYU40_PALETTE
                 else:
-                    raise ValueError(f"Wrong task_i: {task_i}")
+                    raise ValueError(f"Not support task_i: {task_i}")
 
                 task_list = self.task_list[task_i]
-                iou_compute_cmd = "per_class_iu(hist_array_array[task_i][idx])"
-                if num_classes == 2:
+                iou_compute_cmd = "per_class_iu(hist_list[task_i][idx])"
+                if task_i < 2:
                     iou_compute_cmd = "[" + iou_compute_cmd + "[1]]"
 
-                num_scales = len(self.scales)
+                name = data[-1]
+                print(f"File name: {name}")
+
+                base_input = data[0]
+                ms_input = data[-2]
 
                 if have_gt:
-                    name = input[2]
-                    label = input[1]
-                else:
-                    name = input[1]
+                    target = data[1]
 
-                self.writer.add_text("Test", f"File name is {name}")
+                ms_output = []
 
-                h, w = input[0].shape[2:4]
-                images = input[-num_scales:]
-                outputs = []
+                for input in ms_input:
+                    input = input.to(self.device)
+                    output = self.model(input, task_i)
+                    output = F.interpolate(
+                        output,
+                        base_input.shape[2:],
+                        mode="bilinear",
+                        align_corners=True,
+                    )
+                    ms_output.append(output)
 
-                for image in images:
-                    image = image.to(self.device)
-                    final = self.model(image, task_i)
-                    outputs.append([entity.data for entity in final])
-
-                final = []
-                for label_idx in range(len(outputs[0])):
-                    tmp_tensor_list = [
-                        self.resize_4d_tensor(out[label_idx], w, h) for out in outputs
-                    ]
-                    final.append(sum(tmp_tensor_list))
-
-                pred = [label_entity.argmax(axis=1) for label_entity in final]
+                ms_output = torch.sum(torch.as_tensor(ms_output), dim=0)
+                output = ms_output.argmax(dim=1)
 
                 if save_vis:
-                    for idx in range(len(pred)):
-                        assert len(name) == 1
-                        file_name = (name[0][:-4] + task_list[idx] + ".png",)
-                        self.save_output_images(pred[idx], file_name, output_dir)
-                        self.save_colorful_images(
-                            pred[idx], file_name, output_dir + "_color", PALETTE
+                    assert ".png" in name or ".jpg" in name or ".bmp" in name
+                    for idx in range(len(output)):
+                        file_name = (
+                            os.path.basename(name)[:-4] + self.task_list[idx] + ".png"
                         )
-                        if task_i == 2:
-                            gt_name = (name[0][:-4] + task_list[idx] + "_gt.png",)
-                            label_mask = label[idx] == 255
+                        save_dir = "output/test_pred_img"
+                        save_image(output[idx], file_name, save_dir)
+                        save_colorful_image(
+                            output[idx], file_name, save_dir + "_color", PALETTE
+                        )
 
-                            self.save_colorful_images(
-                                (label[idx] - label_mask * 255).numpy(),
+                        if task_i == 2:
+                            gt_name = (
+                                os.path.basename(name)[:-4] + task_list[idx] + "_gt.png"
+                            )
+                            label_mask = target[idx] == 255
+                            save_colorful_image(
+                                (target[idx] - label_mask * 255).numpy(),
                                 gt_name,
-                                output_dir + "_color",
+                                save_dir + "_color",
                                 PALETTE,
                             )
 
                 if have_gt:
-                    map_score_array = []
-                    for idx in range(len(label)):
-                        pred[idx] = pred[idx].flatten()
-                        label[idx] = label[idx].numpy().flatten()
-                        hist_array_array[task_i][idx] = np.bincount(
-                            num_classes * label[idx].astype(int) + pred[idx],
-                            minlength=num_classes ** 2,
-                        ).reshape(num_classes, num_classes)
-                        hist_array_array_acc[task_i][idx] += hist_array_array[task_i][idx]
+                    score = []
+                    if task_i < 2:
+                        for idx in range(len(output)):
+                            ious = mIoU(output[idx], target[idx])
+                            score.append(ious[1])
+                    elif task_i == 2:
+                        for idx in range(len(output)):
+                            ious = mIoU(output[idx], target[idx])
+                            score.append(np.mean(ious))
+                    else:
+                        raise ValueError(f"Not support task_i: {task_i}")
 
-                        map_score_array.append(
-                            round(
-                                np.nanmean(
-                                    [it * 100.0 for it in eval(iou_compute_cmd)]
-                                ),
-                                2,
-                            )
-                        )
+                    score = np.mean(score)
+                    score_list[task_i].update(score, input[0].shape[0])
 
-                        self.writer.add_text(
-                            "Test",
-                            "===> task${}$ mAP {mAP:.3f}".format(
-                                task_list[idx], mAP=map_score_array[idx]
-                            ),
-                        )
-
-                    if len(map_score_array) > 1:
-                        assert len(map_score_array) == len(label)
-                        self.writer.add_text(
-                            "Test",
-                            "===> task${}$ mAP {mAP:.3f}".format(
-                                task_name[task_i],
-                                mAP=round(np.nanmean(map_score_array), 2),
-                            ),
-                        )
+                    print(f"Task {self.task_root_list[task_i]:.2f} score: {score}")
 
         if have_gt:
-            ious_array = []
-            for task_i, iter in enumerate(hist_array_array_acc):
-                ious = []
-                for idx, _ in enumerate(iter):
-                    iou_compute_cmd = "per_class_iu(hist_array_array_acc[task_i][idx])"
-                    if task_i < 2:
-                        iou_compute_cmd = "[" + iou_compute_cmd + "[1]]"
-                    tmp_result = [i * 100.0 for i in eval(iou_compute_cmd)]
-                    ious.append(tmp_result)
-                ious_array.append(ious)
-            for num, ious in enumerate(ious_array):
-                for idx, i in enumerate(ious):
-                    self.logger.info(f"task {self.task_list_array[num][idx]}")
-                    self.logger.info(" ".join(f"{ii:.3f}" for ii in i))
-            for num, ious in enumerate(ious_array):
-                self.logger.info(
-                    f"task {task_name[num]} : {[np.nanmean(i) for i in ious_array][num]:.2d}"
-                )
+            score = np.mean(
+                [score_list[i].avg for i in range(len(self.task_root_list))]
+            )
+            return score
 
-            return round(np.nanmean([np.nanmean(i) for i in ious_array]), 2)
+    def save_checkpoint(self, state, is_best, save_dir, backup_freq=10):
+        os.makedirs(save_dir, exist_ok=True)
 
-    def save_checkpoint(self, state, is_best, backup_freq=10):
-        os.makedirs('model', exist_ok=True)
-
-        file_path = "model/checkpoint_latest.pth"
-        torch.save(state, file_path)
+        checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
+        torch.save(state, checkpoint_path)
 
         if is_best:
-            shutil.copyfile(file_path, "model/model_best.pth")
+            best_path = os.path.join(save_dir, "model_best.pth")
+            shutil.copyfile(checkpoint_path, best_path)
 
         if state["epoch"] % backup_freq == 0:
-            history_path = f'model/checkpoint_{state["epoch"]:03d}.pth'
-            shutil.copyfile(file_path, history_path)
-
-    def save_output_images(self, predictions, filenames, output_dir):
-        """
-        Saves a given (B x C x H x W) into an image file.
-        If given a mini-batch tensor, will save the tensor as a grid of images.
-        """
-        for ind in range(len(filenames)):
-            im = Image.fromarray(predictions[ind].astype(np.uint8))
-            fn = os.path.join(output_dir, filenames[ind][:-4] + ".png")
-            out_dir = os.path.split(fn)[0]
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-            im.save(fn)
-
-    def save_colorful_images(self, predictions, filenames, output_dir, palettes):
-        """
-        Saves a given (B x C x H x W) into an image file.
-        If given a mini-batch tensor, will save the tensor as a grid of images.
-        """
-        for ind in range(len(filenames)):
-            im = Image.fromarray(palettes[predictions[ind].squeeze()])
-            fn = os.path.join(output_dir, filenames[ind][:-4] + ".png")
-            out_dir = os.path.split(fn)[0]
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-            im.save(fn)
-
-    def resize_4d_tensor(self, tensor, width, height):
-        tensor_cpu = tensor.cpu().numpy()
-        if tensor.size(2) == height and tensor.size(3) == width:
-            return tensor_cpu
-        out_size = (tensor.size(0), tensor.size(1), height, width)
-        out = np.empty(out_size, dtype=np.float32)
-
-        def resize_one(i, j):
-            out[i, j] = np.array(
-                Image.fromarray(tensor_cpu[i, j]).resize(
-                    (width, height), Image.BILINEAR
-                )
+            history_path = os.path.join(
+                save_dir, f"checkpoint_{state['epoch']:04d}.pth"
             )
+            shutil.copyfile(checkpoint_path, history_path)
 
-        def resize_channel(j):
-            for i in range(tensor.size(0)):
-                out[i, j] = np.array(
-                    Image.fromarray(tensor_cpu[i, j]).resize(
-                        (width, height), Image.BILINEAR
-                    )
-                )
+    # def resize_4d_tensor(self, tensor, width, height):
+    #     tensor_cpu = tensor.cpu().numpy()
+    #     if tensor.size(2) == height and tensor.size(3) == width:
+    #         return tensor_cpu
+    #     out_size = (tensor.size(0), tensor.size(1), height, width)
+    #     out = np.empty(out_size, dtype=np.float32)
 
-        workers = [
-            threading.Thread(target=resize_channel, args=(j,))
-            for j in range(tensor.size(1))
-        ]
-        for w in workers:
-            w.start()
-        for w in workers:
-            w.join()
-        return out
+    #     def resize_one(i, j):
+    #         out[i, j] = np.array(
+    #             Image.fromarray(tensor_cpu[i, j]).resize(
+    #                 (width, height), Image.BILINEAR
+    #             )
+    #         )
+
+    #     def resize_channel(j):
+    #         for i in range(tensor.size(0)):
+    #             out[i, j] = np.array(
+    #                 Image.fromarray(tensor_cpu[i, j]).resize(
+    #                     (width, height), Image.BILINEAR
+    #                 )
+    #             )
+
+    #     workers = [
+    #         threading.Thread(target=resize_channel, args=(j,))
+    #         for j in range(tensor.size(1))
+    #     ]
+    #     for w in workers:
+    #         w.start()
+    #     for w in workers:
+    #         w.join()
+    #     return out
 
 
 if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-    cerberus = CerberusTrain("train.yaml")
+    cerberus = CerberusTrain("test.yaml")
     cerberus.exec()

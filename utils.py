@@ -1,5 +1,8 @@
+import os
+from PIL import Image
 import numpy as np
 import torch
+
 
 def fast_hist(pred, label, n):
     k = (label >= 0) & (label < n)
@@ -14,12 +17,13 @@ def per_class_iu(hist):
 
 def mIoU(output, target):
     num_classes = output.shape[1]
-    pred = output.max(dim=1)[1]
+    pred = output.argmax(dim=1)
     pred = pred.cpu().numpy()
     target = target.cpu().numpy()
     hist = fast_hist(pred.flatten(), target.flatten(), num_classes)
     ious = per_class_iu(hist) * 100
     return ious
+
 
 class MinNormSolver:
     MAX_ITER = 250
@@ -234,3 +238,109 @@ def gradient_normalizers(grads, losses, normalization_type):
     else:
         print("ERROR: Invalid Normalization Type")
     return gn
+
+
+class AverageMeter:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+def save_image(data, file_name, save_dir):
+    os.makedirs(save_dir, exist_ok=True)
+    img = Image.fromarray(data.astype(np.uint8))
+    img.save(os.path.join(save_dir, file_name))
+
+
+def save_colorful_image(data, file_name, save_dir, palettes):
+    os.makedirs(save_dir, exist_ok=True)
+    img = Image.fromarray(palettes[data.squeeze()])
+    img.save(os.path.join(save_dir, file_name))
+
+
+CITYSCAPE_PALETTE = np.asarray(
+    [
+        [128, 64, 128],
+        [244, 35, 232],
+        [70, 70, 70],
+        [102, 102, 156],
+        [190, 153, 153],
+        [153, 153, 153],
+        [250, 170, 30],
+        [220, 220, 0],
+        [107, 142, 35],
+        [152, 251, 152],
+        [70, 130, 180],
+        [220, 20, 60],
+        [255, 0, 0],
+        [0, 0, 142],
+        [0, 0, 70],
+        [0, 60, 100],
+        [0, 80, 100],
+        [0, 0, 230],
+        [119, 11, 32],
+        [0, 0, 0],
+    ],
+    dtype=np.uint8,
+)
+
+
+NYU40_PALETTE = np.asarray(
+    [
+        [0, 0, 0],
+        [0, 0, 80],
+        [0, 0, 160],
+        [0, 0, 240],
+        [0, 80, 0],
+        [0, 80, 80],
+        [0, 80, 160],
+        [0, 80, 240],
+        [0, 160, 0],
+        [0, 160, 80],
+        [0, 160, 160],
+        [0, 160, 240],
+        [0, 240, 0],
+        [0, 240, 80],
+        [0, 240, 160],
+        [0, 240, 240],
+        [80, 0, 0],
+        [80, 0, 80],
+        [80, 0, 160],
+        [80, 0, 240],
+        [80, 80, 0],
+        [80, 80, 80],
+        [80, 80, 160],
+        [80, 80, 240],
+        [80, 160, 0],
+        [80, 160, 80],
+        [80, 160, 160],
+        [80, 160, 240],
+        [80, 240, 0],
+        [80, 240, 80],
+        [80, 240, 160],
+        [80, 240, 240],
+        [160, 0, 0],
+        [160, 0, 80],
+        [160, 0, 160],
+        [160, 0, 240],
+        [160, 80, 0],
+        [160, 80, 80],
+        [160, 80, 160],
+        [160, 80, 240],
+    ],
+    dtype=np.uint8,
+)
+
+
+AFFORDANCE_PALETTE = np.asarray([[0, 0, 0], [255, 255, 255]], dtype=np.uint8)

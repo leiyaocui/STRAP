@@ -48,7 +48,6 @@ class SegMultiHeadList(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         data = np.array(Image.open(self.image_list[index]))
-        # 这里stack的逻辑需要考察一下，感觉跟criterion有点问题。
         if len(data.shape) == 2:
             data = np.stack([data, data, data], axis=2)
         data = [Image.fromarray(data)]
@@ -56,12 +55,11 @@ class SegMultiHeadList(torch.utils.data.Dataset):
         if self.label_list is not None:
             data.append([Image.open(i) for i in self.label_list[index]])
 
-        data = list(self.transforms(*data))
-
-        if self.ms_scale is not None:
+        if self.ms_scale is None:
+            data = list(self.transforms(*data))
+        else:
             w, h = (640, 480)
-            # 这里为什么是self.transforms()[0]需要检查一下
-            ms_images = [
+            ms_data = [
                 self.transforms(
                     data[0].resize(
                         (round(int(w * s) / 32) * 32, round(int(h * s) / 32) * 32),
@@ -70,7 +68,7 @@ class SegMultiHeadList(torch.utils.data.Dataset):
                 )[0]
                 for s in self.ms_scale
             ]
-            data.extend(ms_images)
+            data.append(ms_data)
 
         if self.out_name:
             data.append(self.image_list[index])
