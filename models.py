@@ -231,10 +231,8 @@ class ResidualConvUnit(nn.Module):
             out = self.bn2(out)
 
         if self.groups > 1:
-            # 这个conv_merge是哪来的，或许是Module继承来的？需要测试一下。
             out = self.conv_merge(out)
 
-        # 这里为什么不直接使用torch.add，甚至是“+”呢
         return self.skip_add.add(out, x)
 
 
@@ -275,7 +273,6 @@ class FeatureFusionBlock(nn.Module):
 
         if len(xs) == 2:
             res = self.resConfUnit1(xs[1])
-            # 这里为什么不直接使用torch.add，甚至是“+”呢
             output = self.skip_add.add(output, res)
 
         output = self.resConfUnit2(output)
