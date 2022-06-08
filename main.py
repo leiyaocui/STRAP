@@ -219,8 +219,8 @@ class CerberusTrain:
                     for k, v in checkpoint["state_dict"].items()
                 }
             )
-            print(f"Loaded checkpoint")
-            print(f"Epoch: {checkpoint['epoch']}\tScore: {checkpoint['best_score']:02f}")
+            print(f"Loaded checkpoint:")
+            print(f"(Epoch: {checkpoint['epoch']}\tScore: {checkpoint['best_score']})")
         else:
             print(f"No checkpoint found")
 
@@ -432,8 +432,6 @@ class CerberusTrain:
     def test(self, save_dir, save_vis, have_gt):
         self.model.eval()
 
-        score_list = [AverageMeter() for _ in range(len(self.task_root_list))]
-
         for task_data_pair in self.test_loader:
             for task_i, data in enumerate(task_data_pair):
                 if task_i < 2:
@@ -465,9 +463,7 @@ class CerberusTrain:
                                 base_input.shape[2:],
                                 mode="bilinear",
                                 align_corners=True,
-                            )
-                            .cpu()
-                            .numpy()
+                            ).numpy()
                         )
                     ms_output.append(output)
 
@@ -508,15 +504,7 @@ class CerberusTrain:
                         raise ValueError(f"Not support task_i: {task_i}")
 
                     score = np.mean(score)
-                    score_list[task_i].update(score, input[0].shape[0])
-
                     print(f"Task {self.task_root_list[task_i]} score: {score:.2f}")
-
-        if have_gt:
-            score = np.mean(
-                [score_list[i].avg for i in range(len(self.task_root_list))]
-            )
-            return score
 
     def save_checkpoint(self, state, is_best, save_dir, backup_freq=10):
         os.makedirs(save_dir, exist_ok=True)
@@ -536,6 +524,6 @@ class CerberusTrain:
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-    cerberus = CerberusTrain("train.yaml")
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    cerberus = CerberusTrain("test.yaml")
     cerberus.exec()
