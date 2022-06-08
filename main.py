@@ -537,6 +537,5 @@ class CerberusTrain:
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     cerberus = CerberusTrain("test.yaml")
     cerberus.exec()
