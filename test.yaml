@@ -8,9 +8,9 @@ ms_scales: [0.9, 1, 1.25]
 save_vis: true
 have_gt: true
 
-workers: 12
+workers: 10
 batch_size: 1
 
 save_dir: 'output'
 
-resume: 'output/xxx/model/model_best.pth'
+resume: 'output/20220609_013426/model/model_best.pth'

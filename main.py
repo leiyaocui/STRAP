@@ -133,7 +133,7 @@ class CerberusTrain:
                 drop_last=True,
             )
 
-            # 这里学习率是这么设置吗？
+            # 这里学习率是这么设置吗？还有这里可以使用Adam或AdamW吗？
             self.optimizer = torch.optim.SGD(
                 [
                     {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
@@ -525,5 +525,5 @@ class CerberusTrain:
 
 if __name__ == "__main__":
     # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-    cerberus = CerberusTrain("test.yaml")
+    cerberus = CerberusTrain("train.yaml")
     cerberus.exec()

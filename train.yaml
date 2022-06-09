@@ -8,9 +8,10 @@ random_crop: 512
 random_rotate: 10
 random_scale: 2
 
-workers: 12
-epochs: 200
+
+epochs: 100
 batch_size: 2
+workers: 10
 
 lr: 0.007
 lr_mode: 'poly'
