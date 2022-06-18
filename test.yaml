@@ -13,4 +13,4 @@ batch_size: 1
 
 save_dir: 'output'
 
-resume: 'output/20220609_013426/model/model_best.pth'
+resume: 'output/20220609_204741/model/model_best.pth'

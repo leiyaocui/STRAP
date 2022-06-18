@@ -79,40 +79,6 @@ class CerberusSegmentationModelMultiHead(Cerberus):
             (40, ["Segmentation"]),
         )
 
-        self.add_module("sigma", nn.Module())
-
-        # 这里为什么重复设置sigma.Parameter，我先给注释掉吧。
-        # self.sigma.attribute_sigmas = nn.Parameter(torch.Tensor(1).uniform_(-1.60, 0.0), requires_grad=True)
-        # self.sigma.affordance_sigmas = nn.Parameter(torch.Tensor(1).uniform_(-1.60, 0.0), requires_grad=True)
-        # self.sigma.seg_sigmas = nn.Parameter(torch.Tensor(1).uniform_(-1.60, 0.0), requires_grad=True)
-
-        # self.sigma.sub_attribute_sigmas = nn.Parameter(torch.Tensor(len(full_output_task_list[0][1])).uniform_(-1.60, 0.0), requires_grad=True)
-        # self.sigma.sub_affordance_sigmas = nn.Parameter(torch.Tensor(len(full_output_task_list[1][1])).uniform_(-1.60, 0.0), requires_grad=True)
-        # self.sigma.sub_seg_sigmas = nn.Parameter(torch.Tensor(len(full_output_task_list[2][1])).uniform_(-1.60, 0.0), requires_grad=True)
-
-        self.sigma.attribute_sigmas = nn.Parameter(
-            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True
-        )
-        self.sigma.affordance_sigmas = nn.Parameter(
-            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True
-        )
-        self.sigma.seg_sigmas = nn.Parameter(
-            torch.Tensor(1).uniform_(0.20, 1.0), requires_grad=True
-        )
-
-        self.sigma.sub_attribute_sigmas = nn.Parameter(
-            torch.Tensor(len(self.full_output_task_list[0][1])).uniform_(0.20, 1.0),
-            requires_grad=True
-        )
-        self.sigma.sub_affordance_sigmas = nn.Parameter(
-            torch.Tensor(len(self.full_output_task_list[1][1])).uniform_(0.20, 1.0),
-            requires_grad=True
-        )
-        self.sigma.sub_seg_sigmas = nn.Parameter(
-            torch.Tensor(len(self.full_output_task_list[2][1])).uniform_(0.20, 1.0),
-            requires_grad=True
-        )
-
         for (num_classes, output_task_list) in self.full_output_task_list:
             for it in output_task_list:
                 setattr(

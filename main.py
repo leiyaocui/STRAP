@@ -29,7 +29,7 @@ class CerberusTrain:
 
         self.mode = config["mode"]
         self.save_dir = os.path.join(
-            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
+            config["save_dir"], self.mode, datetime.now().strftime("%Y%m%d_%H%M%S")
         )
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -133,15 +133,11 @@ class CerberusTrain:
                 drop_last=True,
             )
 
-            # 这里学习率是这么设置吗？还有这里可以使用Adam或AdamW吗？
             self.optimizer = torch.optim.SGD(
                 [
                     {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
                     {"params": self.model.scratch.parameters(), "lr": config["lr"]},
-                    {
-                        "params": self.model.sigma.parameters(),
-                        "lr": config["lr"] * 0.01,
-                    },
+                    # {"params": self.model.sigma.parameters(),"lr": config["lr"]},
                 ],
                 momentum=config["momentum"],
                 weight_decay=config["weight_decay"],
@@ -268,14 +264,12 @@ class CerberusTrain:
             )
             score_list.append(AverageMeter())
 
-        for task_data_pair in tqdm(
-            self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80
-        ):
+        for task_data_pair in tqdm(self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80):
             grads = {}
             task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
-                input = input.cuda(non_blocking=True)
-                target = [target[i].cuda(non_blocking=True) for i in range(len(target))]
+                input = input.cuda()
+                target = [target[i].cuda() for i in range(len(target))]
                 output = self.model(input, task_i)
 
                 self.optimizer.zero_grad(set_to_none=True)
@@ -312,7 +306,6 @@ class CerberusTrain:
                 )
 
                 score = []
-                # 计算IoU时，为什么不一样？或许是每个task要求不一样，前两个只看对的，最后那个看类别？
                 if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
@@ -343,6 +336,8 @@ class CerberusTrain:
             loss.backward()
 
             self.optimizer.step()
+        
+        self.scheduler.step()
 
         for i, it in enumerate(self.task_root_list):
             self.writer.add_scalar(
