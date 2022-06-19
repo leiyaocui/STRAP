@@ -135,10 +135,10 @@ class CerberusTrain:
 
             self.optimizer = torch.optim.SGD(
                 [
-                    {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
-                    {"params": self.model.scratch.parameters(), "lr": config["lr"]},
-                    # {"params": self.model.sigma.parameters(),"lr": config["lr"]},
+                    {"params": self.model.pretrained.parameters()},
+                    {"params": self.model.scratch.parameters()},
                 ],
+                lr=config["lr"],
                 momentum=config["momentum"],
                 weight_decay=config["weight_decay"],
             )
@@ -215,21 +215,18 @@ class CerberusTrain:
                     for k, v in checkpoint["state_dict"].items()
                 }
             )
-            print(f"Loaded checkpoint:")
-            print(f"(Epoch: {checkpoint['epoch']}\tScore: {checkpoint['best_score']})")
+            print(
+                f"Loaded checkpoint:"
+                f"Epoch: {checkpoint['epoch']} Score: {checkpoint['best_score']}"
+            )
         else:
             print(f"No checkpoint found")
 
     def exec(self):
         if self.mode == "train":
             for epoch in range(self.start_epoch, self.epochs):
-                self.writer.add_scalars(
-                    f"train_lr",
-                    {
-                        "pretrained": self.scheduler.get_last_lr()[0],
-                        "scratch": self.scheduler.get_last_lr()[1],
-                    },
-                    global_step=epoch,
+                self.writer.add_scalar(
+                    f"train_lr", self.scheduler.get_last_lr()[0], global_step=epoch
                 )
 
                 self.train(epoch)
@@ -254,19 +251,20 @@ class CerberusTrain:
         self.model.train()
 
         loss_list = []
-        loss_per_task_list = []
+        # loss_per_task_list = []
         score_list = []
 
         for i in range(len(self.task_root_list)):
             loss_list.append(AverageMeter())
-            loss_per_task_list.append(
-                [AverageMeter() for _ in range(len(self.task_list[i]))]
-            )
+            # loss_per_task_list.append(
+            #     [AverageMeter() for _ in range(len(self.task_list[i]))]
+            # )
             score_list.append(AverageMeter())
 
-        for task_data_pair in tqdm(self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80):
+        for task_data_pair in tqdm(
+            self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80
+        ):
             grads = {}
-            task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.cuda()
                 target = [target[i].cuda() for i in range(len(target))]
@@ -278,14 +276,12 @@ class CerberusTrain:
                 for idx in range(len(output)):
                     loss_single = self.criterion(output[idx], target[idx])
                     loss.append(loss_single)
-                    loss_per_task_list[task_i][idx].update(
-                        loss_single.item(), input.shape[0]
-                    )
+                    # loss_per_task_list[task_i][idx].update(
+                    #     loss_single.item(), input.shape[0]
+                    # )
 
                 loss = sum(loss)
-                loss.backward(retain_graph=True)
-
-                task_loss.append(loss)
+                loss.backward()
                 loss_list[task_i].update(loss.item(), input.shape[0])
 
                 grads[self.task_root_list[task_i]] = []
@@ -319,6 +315,21 @@ class CerberusTrain:
 
                 score_list[task_i].update(np.mean(score), input.shape[0])
 
+            task_loss = []
+            for task_i, (input, target) in enumerate(task_data_pair):
+                input = input.cuda()
+                target = [target[i].cuda() for i in range(len(target))]
+                output = self.model(input, task_i)
+
+                loss = []
+                for idx in range(len(output)):
+                    loss_single = self.criterion(output[idx], target[idx])
+                    loss.append(loss_single)
+
+                loss = sum(loss)
+                task_loss.append(loss)
+                
+
             sol, min_norm = MinNormSolver.find_min_norm_element(
                 [grads[i] for i in self.task_root_list]
             )
@@ -329,14 +340,14 @@ class CerberusTrain:
             #     global_step=epoch*len(self.train_loader) + data_i
             # )
 
-            self.optimizer.zero_grad(set_to_none=True)
+            self.optimizer.zero_grad()
 
             loss = [sol[i] * task_loss[i] for i in range(len(self.task_root_list))]
             loss = sum(loss)
             loss.backward()
 
             self.optimizer.step()
-        
+
         self.scheduler.step()
 
         for i, it in enumerate(self.task_root_list):
@@ -346,26 +357,26 @@ class CerberusTrain:
             self.writer.add_scalar(
                 f"train_epoch_{it}_score_avg", score_list[i].avg, global_step=epoch
             )
-            for j, it in enumerate(self.task_list[i]):
-                self.writer.add_scalar(
-                    f"train_epoch_task_{it}_loss_avg",
-                    loss_per_task_list[i][j].avg,
-                    global_step=epoch,
-                )
+            # for j, it in enumerate(self.task_list[i]):
+            #     self.writer.add_scalar(
+            #         f"train_epoch_task_{it}_loss_avg",
+            #         loss_per_task_list[i][j].avg,
+            #         global_step=epoch,
+            #     )
 
     @torch.no_grad()
     def validate(self, epoch):
         self.model.eval()
 
         loss_list = []
-        loss_per_task_list = []
+        # loss_per_task_list = []
         score_list = []
 
         for i in range(len(self.task_root_list)):
             loss_list.append(AverageMeter())
-            loss_per_task_list.append(
-                [AverageMeter() for _ in range(len(self.task_list[i]))]
-            )
+            # loss_per_task_list.append(
+            #     [AverageMeter() for _ in range(len(self.task_list[i]))]
+            # )
             score_list.append(AverageMeter())
 
         for task_data_pair in tqdm(
@@ -381,9 +392,9 @@ class CerberusTrain:
                 for idx in range(len(output)):
                     loss_single = self.criterion(output[idx], target[idx])
                     loss.append(loss_single)
-                    loss_per_task_list[task_i][idx].update(
-                        loss_single.item(), input.shape[0]
-                    )
+                    # loss_per_task_list[task_i][idx].update(
+                    #     loss_single.item(), input.shape[0]
+                    # )
                 loss = sum(loss)
                 loss_list[task_i].update(loss.item(), input.shape[0])
 
@@ -408,17 +419,14 @@ class CerberusTrain:
             self.writer.add_scalar(
                 f"val_epoch_{it}_score_avg", score_list[i].avg, global_step=epoch
             )
-            for j, it in enumerate(self.task_list[i]):
-                self.writer.add_scalar(
-                    f"val_epoch_task_{it}_loss_avg",
-                    loss_per_task_list[i][j].avg,
-                    global_step=epoch,
-                )
+            # for j, it in enumerate(self.task_list[i]):
+            #     self.writer.add_scalar(
+            #         f"val_epoch_task_{it}_loss_avg",
+            #         loss_per_task_list[i][j].avg,
+            #         global_step=epoch,
+            #     )
 
         score = np.mean([score_list[i].avg for i in range(len(self.task_root_list))])
-        self.writer.add_text(
-            f"[Val] Average Score", f"Epoch_{epoch}: {score:.3f}", global_step=epoch
-        )
         self.writer.add_scalar("val_score_avg", score, global_step=epoch)
 
         return score
@@ -452,14 +460,12 @@ class CerberusTrain:
                     input = input
                     output = self.model(input, task_i)
                     for idx in range(len(output)):
-                        output[idx] = (
-                            F.interpolate(
-                                output[idx],
-                                base_input.shape[2:],
-                                mode="bilinear",
-                                align_corners=True,
-                            ).numpy()
-                        )
+                        output[idx] = F.interpolate(
+                            output[idx],
+                            base_input.shape[2:],
+                            mode="bilinear",
+                            align_corners=True,
+                        ).numpy()
                     ms_output.append(output)
 
                 ms_output = torch.as_tensor(np.array(ms_output))
