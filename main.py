@@ -139,8 +139,6 @@ class CerberusTrain:
                 weight_decay=config["weight_decay"],
             )
 
-            # if torch.cuda.device_count() > 1:
-            #     self.model = torch.nn.DataParallel(self.model)
             self.model = self.model.cuda()
 
             if config["lr_mode"] == "step":
@@ -155,8 +153,6 @@ class CerberusTrain:
                 self.optimizer, lr_lambda=lambda_func, verbose=True
             )
 
-            torch.backends.cudnn.benchmark = True
-
         elif self.mode == "test":
             self.ms_scales = config["ms_scales"]
             self.save_vis = config["save_vis"]
@@ -167,7 +163,7 @@ class CerberusTrain:
                     transforms.ToTensorMultiHead(),
                     transforms.Normalize(
                         mean=config["data_mean"], std=config["data_std"]
-                    ),
+                    )
                 ]
             )
 
@@ -176,31 +172,33 @@ class CerberusTrain:
                 "val_attribute",
                 test_tf,
                 ms_scale=self.ms_scales,
-                out_name=True,
+                out_name=True
             )
             dataset_af_test = SegMultiHeadList(
                 config["data_dir"],
                 "val_affordance",
                 test_tf,
                 ms_scale=self.ms_scales,
-                out_name=True,
+                out_name=True
             )
             dataset_seg_test = SegMultiHeadList(
                 config["data_dir"],
                 "val",
                 test_tf,
                 ms_scale=self.ms_scales,
-                out_name=True,
+                out_name=True
             )
 
             self.test_loader = DataLoader(
                 ConcatSegList(dataset_at_test, dataset_af_test, dataset_seg_test),
                 batch_size=config["batch_size"],
                 shuffle=False,
-                num_workers=config["workers"],
+                num_workers=config["workers"]
             )
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
+
+        torch.backends.cudnn.benchmark = True
 
         self.best_score = 0
         self.start_epoch = 0
