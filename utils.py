@@ -12,14 +12,15 @@ def fast_hist(pred, target, n):
 
 @torch.no_grad()
 def per_class_iu(hist):
-    return torch.diag(hist) / (hist.sum(dim=1) + hist.sum(dim=0) - torch.diag(hist) + 1e-12)
+    return torch.diag(hist) / (hist.sum(dim=1) + hist.sum(dim=0) - torch.diag(hist))
 
 
 @torch.no_grad()
 def mIoU(output, target):
     num_classes = output.shape[1]
-    pred = output.argmax(dim=1)
-    hist = fast_hist(pred.flatten(), target.flatten(), num_classes)
+    _, pred = output.max(dim=1)
+    hist = torch.zeros((num_classes, num_classes)).to(output.device)
+    hist += fast_hist(pred.flatten(), target.flatten(), num_classes)
     ious = per_class_iu(hist) * 100
     return ious
 

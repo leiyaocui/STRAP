@@ -33,7 +33,7 @@ class CerberusTrain:
         )
         os.makedirs(self.save_dir, exist_ok=True)
 
-        self.task_root_list = ["At", "Af", "Seg"]
+        self.task_root_list = ["attribute", "affordance", "segmentation"]
         self.task_list = [
             [
                 "Wood",
@@ -58,10 +58,6 @@ class CerberusTrain:
             self.epochs = config["epochs"]
 
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
-
-            # if torch.cuda.device_count() > 1:
-            #     self.model = torch.nn.DataParallel(self.model)
-            self.model = self.model.cuda()
 
             # 这里为什么忽略255
             self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
@@ -143,6 +139,10 @@ class CerberusTrain:
                 weight_decay=config["weight_decay"],
             )
 
+            # if torch.cuda.device_count() > 1:
+            #     self.model = torch.nn.DataParallel(self.model)
+            self.model = self.model.cuda()
+
             if config["lr_mode"] == "step":
                 lambda_func = lambda e: 0.1 ** (e // config["step"])
 
@@ -152,7 +152,7 @@ class CerberusTrain:
                 raise ValueError(f'Unknown lr mode {config["lr_mode"]}')
 
             self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-                self.optimizer, lr_lambda=lambda_func
+                self.optimizer, lr_lambda=lambda_func, verbose=True
             )
 
             torch.backends.cudnn.benchmark = True
@@ -225,11 +225,8 @@ class CerberusTrain:
     def exec(self):
         if self.mode == "train":
             for epoch in range(self.start_epoch, self.epochs):
-                self.writer.add_scalar(
-                    f"train_lr", self.scheduler.get_last_lr()[0], global_step=epoch
-                )
-
                 self.train(epoch)
+                self.scheduler.step()
                 score = self.validate(epoch)
 
                 is_best = score > self.best_score
@@ -267,7 +264,8 @@ class CerberusTrain:
             grads = {}
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.cuda()
-                target = [target[i].cuda() for i in range(len(target))]
+                for i in range(len(target)):
+                    target[i] = target[i].cuda()
                 output = self.model(input, task_i)
 
                 self.optimizer.zero_grad(set_to_none=True)
@@ -309,26 +307,25 @@ class CerberusTrain:
                 elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(torch.mean(ious).item())
+                        score.append(np.nanmean(ious.cpu().numpy()))
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
-                score_list[task_i].update(np.mean(score), input.shape[0])
+                score_list[task_i].update(np.nanmean(score), input.shape[0])
 
             task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.cuda()
-                target = [target[i].cuda() for i in range(len(target))]
+                for i in range(len(target)):
+                    target[i] = target[i].cuda()
                 output = self.model(input, task_i)
 
                 loss = []
                 for idx in range(len(output)):
-                    loss_single = self.criterion(output[idx], target[idx])
-                    loss.append(loss_single)
+                    loss.append(self.criterion(output[idx], target[idx]))
 
                 loss = sum(loss)
                 task_loss.append(loss)
-                
 
             sol, min_norm = MinNormSolver.find_min_norm_element(
                 [grads[i] for i in self.task_root_list]
@@ -347,8 +344,6 @@ class CerberusTrain:
             loss.backward()
 
             self.optimizer.step()
-
-        self.scheduler.step()
 
         for i, it in enumerate(self.task_root_list):
             self.writer.add_scalar(
@@ -383,15 +378,15 @@ class CerberusTrain:
             self.val_loader, desc=f"[Val] Epoch {epoch+1:04d}", ncols=80
         ):
             for task_i, (input, target) in enumerate(task_data_pair):
-                input = input.cuda(non_blocking=True)
-                target = [target[i].cuda(non_blocking=True) for i in range(len(target))]
+                input = input.cuda()
+                for i in range(len(target)):
+                    target[i] = target[i].cuda()
 
                 output = self.model(input, task_i)
 
                 loss = []
                 for idx in range(len(output)):
-                    loss_single = self.criterion(output[idx], target[idx])
-                    loss.append(loss_single)
+                    loss.append(self.criterion(output[idx], target[idx]))
                     # loss_per_task_list[task_i][idx].update(
                     #     loss_single.item(), input.shape[0]
                     # )
@@ -406,11 +401,13 @@ class CerberusTrain:
                 elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(torch.mean(ious).item())
+                        score.append(np.nanmean(ious.cpu().numpy()))
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
-                score_list[task_i].update(np.mean(score), input.shape[0])
+                score = np.nanmean(score)
+                if not np.isnan(score):
+                    score_list[task_i].update(score, input.shape[0])
 
         for i, it in enumerate(self.task_root_list):
             self.writer.add_scalar(
@@ -426,7 +423,7 @@ class CerberusTrain:
             #         global_step=epoch,
             #     )
 
-        score = np.mean([score_list[i].avg for i in range(len(self.task_root_list))])
+        score = np.nanmean([score_list[i].avg for i in range(len(self.task_root_list))])
         self.writer.add_scalar("val_score_avg", score, global_step=epoch)
 
         return score
@@ -500,11 +497,11 @@ class CerberusTrain:
                     elif task_i == 2:
                         for idx in range(len(output)):
                             ious = mIoU(output[idx], target[idx])
-                            score.append(torch.mean(ious).item())
+                            score.append(np.nanmean(ious.cpu().numpy()))
                     else:
                         raise ValueError(f"Not support task_i: {task_i}")
 
-                    score = np.mean(score)
+                    score = np.nanmean(score)
                     print(f"Task {self.task_root_list[task_i]} score: {score:.2f}")
 
     def save_checkpoint(self, state, is_best, save_dir, backup_freq=10):

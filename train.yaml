@@ -11,7 +11,7 @@ random_scale: 2
 
 epochs: 100
 batch_size: 2
-workers: 10
+workers: 12
 
 lr: 0.007
 lr_mode: 'poly'

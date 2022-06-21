@@ -98,7 +98,7 @@ class CerberusSegmentationModelMultiHead(Cerberus):
                 setattr(
                     self.scratch,
                     "output_" + it + "_upsample",
-                    nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
+                    Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
                 )
 
     def get_attention(self, x, name):
@@ -138,15 +138,35 @@ class CerberusSegmentationModelMultiHead(Cerberus):
         else:
             raise ValueError(f"Not support index: {index}")
 
-        outs = []
+        outputs = []
         for it in self.full_output_task_list[index][1]:
             func = eval("self.scratch.output_" + it)
             out = func(path_1)
             func = eval("self.scratch.output_" + it + "_upsample")
             out = func(out)
-            outs.append(out)
+            outputs.append(out)
 
-        return outs
+        return outputs
+
+
+class Interpolate(nn.Module):
+    def __init__(self, scale_factor, mode, align_corners=False):
+        super(Interpolate, self).__init__()
+
+        self.interp = nn.functional.interpolate
+        self.scale_factor = scale_factor
+        self.mode = mode
+        self.align_corners = align_corners
+
+    def forward(self, x):
+        x = self.interp(
+            x,
+            scale_factor=self.scale_factor,
+            mode=self.mode,
+            align_corners=self.align_corners,
+        )
+
+        return x
 
 
 class ResidualConvUnit(nn.Module):
@@ -155,8 +175,6 @@ class ResidualConvUnit(nn.Module):
 
         self.bn = bn
 
-        self.groups = 1
-
         self.conv1 = nn.Conv2d(
             features,
             features,
@@ -164,7 +182,7 @@ class ResidualConvUnit(nn.Module):
             stride=1,
             padding=1,
             bias=not self.bn,
-            groups=self.groups,
+            groups=1
         )
 
         self.conv2 = nn.Conv2d(
@@ -174,7 +192,7 @@ class ResidualConvUnit(nn.Module):
             stride=1,
             padding=1,
             bias=not self.bn,
-            groups=self.groups,
+            groups=1
         )
 
         if self.bn == True:
@@ -196,19 +214,16 @@ class ResidualConvUnit(nn.Module):
         if self.bn == True:
             out = self.bn2(out)
 
-        if self.groups > 1:
-            out = self.conv_merge(out)
-
         return self.skip_add.add(out, x)
 
 
 class FeatureFusionBlock(nn.Module):
     def __init__(
-        self, features, activation, bn=False, expand=False, align_corners=True,
+        self, features, activation, bn=False, expand=False, align_corners=True
     ):
         super(FeatureFusionBlock, self).__init__()
 
-        self.groups = 1
+        self.align_corners = align_corners
 
         if expand == True:
             out_features = features // 2
@@ -222,17 +237,13 @@ class FeatureFusionBlock(nn.Module):
             stride=1,
             padding=0,
             bias=True,
-            groups=self.groups,
+            groups=1
         )
 
         self.resConfUnit1 = ResidualConvUnit(features, activation, bn)
         self.resConfUnit2 = ResidualConvUnit(features, activation, bn)
 
         self.skip_add = nn.quantized.FloatFunctional()
-
-        self.interpolate = nn.Upsample(
-            scale_factor=2, mode="bilinear", align_corners=align_corners
-        )
 
     def forward(self, *xs):
         output = xs[0]
@@ -242,7 +253,9 @@ class FeatureFusionBlock(nn.Module):
             output = self.skip_add.add(output, res)
 
         output = self.resConfUnit2(output)
-        output = self.interpolate(output)
+        output = nn.functional.interpolate(
+            output, scale_factor=2, mode="bilinear", align_corners=self.align_corners
+        )
 
         output = self.out_conv(output)
 
@@ -251,7 +264,7 @@ class FeatureFusionBlock(nn.Module):
 
 def _make_encoder(
     features,
-    use_pretrained,
+    use_pretrained=True,
     groups=1,
     expand=False,
     hooks=None,
@@ -264,7 +277,7 @@ def _make_encoder(
         hooks=hooks,
         use_vit_only=use_vit_only,
         use_readout=use_readout,
-        enable_attention_hooks=enable_attention_hooks,
+        enable_attention_hooks=enable_attention_hooks
     )
     scratch = _make_scratch(
         [256, 512, 768, 768], features, groups=groups, expand=expand
@@ -333,5 +346,5 @@ def _make_fusion_block(features, use_bn):
         nn.ReLU(False),
         bn=use_bn,
         expand=False,
-        align_corners=True,
+        align_corners=True
     )
