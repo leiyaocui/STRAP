@@ -5,7 +5,6 @@ import shutil
 from tqdm import tqdm
 from datetime import datetime
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -59,7 +58,6 @@ class CerberusTrain:
 
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
-            # 这里为什么忽略255
             self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
             self.criterion = self.criterion.cuda()
 
@@ -150,8 +148,10 @@ class CerberusTrain:
                 raise ValueError(f'Unknown lr mode {config["lr_mode"]}')
 
             self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-                self.optimizer, lr_lambda=lambda_func, verbose=True
+                self.optimizer, lr_lambda=lambda_func
             )
+
+            torch.backends.cudnn.benchmark = True
 
         elif self.mode == "test":
             self.ms_scales = config["ms_scales"]
@@ -163,7 +163,7 @@ class CerberusTrain:
                     transforms.ToTensorMultiHead(),
                     transforms.Normalize(
                         mean=config["data_mean"], std=config["data_std"]
-                    )
+                    ),
                 ]
             )
 
@@ -172,33 +172,32 @@ class CerberusTrain:
                 "val_attribute",
                 test_tf,
                 ms_scale=self.ms_scales,
-                out_name=True
+                out_name=True,
             )
             dataset_af_test = SegMultiHeadList(
                 config["data_dir"],
                 "val_affordance",
                 test_tf,
                 ms_scale=self.ms_scales,
-                out_name=True
+                out_name=True,
             )
             dataset_seg_test = SegMultiHeadList(
                 config["data_dir"],
                 "val",
                 test_tf,
                 ms_scale=self.ms_scales,
-                out_name=True
+                out_name=True,
             )
 
             self.test_loader = DataLoader(
                 ConcatSegList(dataset_at_test, dataset_af_test, dataset_seg_test),
                 batch_size=config["batch_size"],
                 shuffle=False,
-                num_workers=config["workers"]
+                num_workers=config["workers"],
             )
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
 
-        torch.backends.cudnn.benchmark = True
 
         self.best_score = 0
         self.start_epoch = 0
@@ -224,8 +223,8 @@ class CerberusTrain:
         if self.mode == "train":
             for epoch in range(self.start_epoch, self.epochs):
                 self.train(epoch)
-                self.scheduler.step()
                 score = self.validate(epoch)
+                self.scheduler.step()
 
                 is_best = score > self.best_score
                 self.best_score = max(score, self.best_score)
@@ -259,14 +258,12 @@ class CerberusTrain:
         for task_data_pair in tqdm(
             self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80
         ):
-            grads = {}
+            grads = [[] for _ in range(len(self.task_root_list))]
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.cuda()
                 for i in range(len(target)):
                     target[i] = target[i].cuda()
                 output = self.model(input, task_i)
-
-                self.optimizer.zero_grad(set_to_none=True)
 
                 loss = []
                 for idx in range(len(output)):
@@ -276,24 +273,25 @@ class CerberusTrain:
                     #     loss_single.item(), input.shape[0]
                     # )
 
+                self.optimizer.zero_grad(set_to_none=True)
+
                 loss = sum(loss)
                 loss.backward()
                 loss_list[task_i].update(loss.item(), input.shape[0])
 
-                grads[self.task_root_list[task_i]] = []
                 for cnt in self.model.pretrained.parameters():
                     if cnt.grad is not None:
-                        grads[self.task_root_list[task_i]].append(cnt.grad.data.clone())
-                grads[self.task_root_list[task_i]].append(
+                        grads[task_i].append(cnt.grad.data.clone())
+                grads[task_i].append(
                     self.model.scratch.layer1_rn.weight.grad.data.clone()
                 )
-                grads[self.task_root_list[task_i]].append(
+                grads[task_i].append(
                     self.model.scratch.layer2_rn.weight.grad.data.clone()
                 )
-                grads[self.task_root_list[task_i]].append(
+                grads[task_i].append(
                     self.model.scratch.layer3_rn.weight.grad.data.clone()
                 )
-                grads[self.task_root_list[task_i]].append(
+                grads[task_i].append(
                     self.model.scratch.layer4_rn.weight.grad.data.clone()
                 )
 
@@ -311,6 +309,14 @@ class CerberusTrain:
 
                 score_list[task_i].update(np.nanmean(score), input.shape[0])
 
+            sol, min_norm = MinNormSolver.find_min_norm_element(grads)
+
+            # self.writer.add_scalars(
+            #     f"train_min_norm_scale",
+            #     {'sol_0': sol[0], 'sol_1': sol[1], 'sol_2': sol[2]},
+            #     global_step=epoch*len(self.train_loader) + data_i
+            # )
+
             task_loss = []
             for task_i, (input, target) in enumerate(task_data_pair):
                 input = input.cuda()
@@ -324,16 +330,6 @@ class CerberusTrain:
 
                 loss = sum(loss)
                 task_loss.append(loss)
-
-            sol, min_norm = MinNormSolver.find_min_norm_element(
-                [grads[i] for i in self.task_root_list]
-            )
-
-            # self.writer.add_scalars(
-            #     f"train_min_norm_scale",
-            #     {'sol_0': sol[0], 'sol_1': sol[1], 'sol_2': sol[2]},
-            #     global_step=epoch*len(self.train_loader) + data_i
-            # )
 
             self.optimizer.zero_grad()
 
@@ -403,9 +399,7 @@ class CerberusTrain:
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
-                score = np.nanmean(score)
-                if not np.isnan(score):
-                    score_list[task_i].update(score, input.shape[0])
+                score_list[task_i].update(np.nanmean(score), input.shape[0])
 
         for i, it in enumerate(self.task_root_list):
             self.writer.add_scalar(
@@ -455,7 +449,7 @@ class CerberusTrain:
                     input = input
                     output = self.model(input, task_i)
                     for idx in range(len(output)):
-                        output[idx] = F.interpolate(
+                        output[idx] = torch.nn.functional.interpolate(
                             output[idx],
                             base_input.shape[2:],
                             mode="bilinear",
@@ -469,7 +463,9 @@ class CerberusTrain:
                 if save_vis:
                     assert ".png" in name or ".jpg" in name or ".bmp" in name
                     for idx in range(len(output)):
-                        file_name = f"{self.task_root_list[task_i]}/{self.task_list[task_i][idx]}/{name[:-4]}.png"
+                        file_name = (
+                            f"{task_i}/{self.task_list[task_i][idx]}/{name[:-4]}.png"
+                        )
                         pred = output[idx].argmax(dim=1)
                         save_image(pred, file_name, save_dir)
                         save_colorful_image(
@@ -477,7 +473,7 @@ class CerberusTrain:
                         )
 
                         if task_i == 2:
-                            gt_name = f"{self.task_root_list[task_i]}/{self.task_list[task_i][idx]}/{name[:-4]}_gt.png"
+                            gt_name = f"{task_i}/{self.task_list[task_i][idx]}/{name[:-4]}_gt.png"
                             label_mask = target[idx] == 255
                             save_colorful_image(
                                 target[idx] - label_mask * 255,
@@ -500,7 +496,7 @@ class CerberusTrain:
                         raise ValueError(f"Not support task_i: {task_i}")
 
                     score = np.nanmean(score)
-                    print(f"Task {self.task_root_list[task_i]} score: {score:.2f}")
+                    print(f"Task {task_i} score: {score:.2f}")
 
     def save_checkpoint(self, state, is_best, save_dir, backup_freq=10):
         os.makedirs(save_dir, exist_ok=True)

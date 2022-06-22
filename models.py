@@ -136,7 +136,7 @@ class CerberusSegmentationModelMultiHead(Cerberus):
             path_2 = self.scratch.refinenet10(path_3, layer_2_rn)
             path_1 = self.scratch.refinenet09(path_2, layer_1_rn)
         else:
-            raise ValueError(f"Not support index: {index}")
+            raise ValueError(f"Not support task_i: {index}")
 
         outputs = []
         for it in self.full_output_task_list[index][1]:

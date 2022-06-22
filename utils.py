@@ -3,6 +3,8 @@ from PIL import Image
 import numpy as np
 import torch
 
+from timm.utils import AverageMeter
+
 
 @torch.no_grad()
 def fast_hist(pred, target, n):
@@ -19,7 +21,7 @@ def per_class_iu(hist):
 def mIoU(output, target):
     num_classes = output.shape[1]
     _, pred = output.max(dim=1)
-    hist = torch.zeros((num_classes, num_classes)).to(output.device)
+    hist = torch.zeros((num_classes, num_classes), device=output.device)
     hist += fast_hist(pred.flatten(), target.flatten(), num_classes)
     ious = per_class_iu(hist) * 100
     return ious
@@ -215,46 +217,6 @@ class MinNormSolver:
             if torch.sum(torch.abs(change)) < MinNormSolver.STOP_CRIT:
                 return sol_vec, nd
             sol_vec = new_sol_vec
-
-
-def gradient_normalizers(grads, losses, normalization_type):
-    gn = {}
-    if normalization_type == "l2":
-        for t in grads:
-            gn[t] = torch.sqrt(
-                torch.sum([gr.pow(2).sum().data.cpu() for gr in grads[t]])
-            )
-    elif normalization_type == "loss":
-        for t in grads:
-            gn[t] = losses[t]
-    elif normalization_type == "loss+":
-        for t in grads:
-            gn[t] = losses[t] * torch.sqrt(
-                torch.sum([gr.pow(2).sum().data.cpu() for gr in grads[t]])
-            )
-    elif normalization_type == "none":
-        for t in grads:
-            gn[t] = 1.0
-    else:
-        print("ERROR: Invalid Normalization Type")
-    return gn
-
-
-class AverageMeter:
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
 
 
 @torch.no_grad()
