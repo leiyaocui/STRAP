@@ -1,0 +1,27 @@
+mode: "train"
+
+data_dir: "../dataset/cad120/object"
+
+task:
+  affordance:
+    num_classes: 2
+    category: ["Openable", "Cuttable", "Pourable", "Containable", "Supportable", "Holdable"]
+
+random_crop: 321
+random_rotate: 10
+random_scale: 2
+data_mean: [0.40787450980392154, 0.4575254901960784, 0.481078431372549]
+data_std: [1, 1, 1]
+
+epochs: 100
+batch_size: 4
+workers: 10
+
+lr: 0.007
+lr_mode: "poly"
+momentum: 0.9
+weight_decay: 0.0001
+
+save_dir: "output"
+
+resume: ""

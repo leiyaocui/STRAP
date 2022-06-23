@@ -118,13 +118,25 @@ def forward_vit(pretrained, x):
     layer_3 = pretrained.act_postprocess3[0:2](layer_3)
     layer_4 = pretrained.act_postprocess4[0:2](layer_4)
 
+    # unflatten = nn.Sequential(
+    #     nn.Unflatten(
+    #         2,
+    #         torch.Size(
+    #             [
+    #                 h // pretrained.model.patch_size[1],
+    #                 w // pretrained.model.patch_size[0],
+    #             ]
+    #         ),
+    #     )
+    # )
+
     unflatten = nn.Sequential(
         nn.Unflatten(
             2,
             torch.Size(
                 [
-                    h // pretrained.model.patch_size[1],
-                    w // pretrained.model.patch_size[0],
+                    math.ceil(h / pretrained.model.patch_size[1]),
+                    math.ceil(w / pretrained.model.patch_size[0]),
                 ]
             ),
         )
@@ -167,11 +179,12 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
 def forward_flex(self, x, attn=False, name=None):
     b, c, h, w = x.shape
 
+    # pos_embed = self._resize_pos_embed(
+    #     self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
+    # )
     pos_embed = self._resize_pos_embed(
-        self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
+        self.pos_embed, math.ceil(h / self.patch_size[1]), math.ceil(w / self.patch_size[0])
     )
-
-    B = x.shape[0]
 
     if hasattr(self.patch_embed, "backbone"):
         x = self.patch_embed.backbone(x)
@@ -182,13 +195,13 @@ def forward_flex(self, x, attn=False, name=None):
 
     if self.dist_token:
         cls_tokens = self.cls_token.expand(
-            B, -1, -1
+            b, -1, -1
         )  # stole cls_tokens impl from Phil Wang, thanks
-        dist_token = self.dist_token.expand(B, -1, -1)
+        dist_token = self.dist_token.expand(b, -1, -1)
         x = torch.cat((cls_tokens, dist_token, x), dim=1)
     else:
         cls_tokens = self.cls_token.expand(
-            B, -1, -1
+            b, -1, -1
         )  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_tokens, x), dim=1)
 

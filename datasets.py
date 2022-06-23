@@ -5,7 +5,7 @@ import numpy as np
 import pickle
 
 
-class ConcatSegList(torch.utils.data.Dataset):
+class ConcatMultiHeadDataset(torch.utils.data.Dataset):
     def __init__(self, at, af, seg):
         self.at = at
         self.af = af
@@ -20,7 +20,7 @@ class ConcatSegList(torch.utils.data.Dataset):
         return len(self.at)
 
 
-class SegMultiHeadList(torch.utils.data.Dataset):
+class MultiHeadDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, phase, transforms, ms_scale=None, out_name=False):
         self.transforms = transforms
         self.ms_scale = ms_scale
@@ -86,7 +86,7 @@ class SegMultiHeadList(torch.utils.data.Dataset):
         return len(self.image_list)
 
 
-class WSMultiHeadDataset(torch.utils.data.Dataset):
+class SingleDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, phase, transforms, out_name=False):
         self.transforms = transforms
         self.out_name = out_name
@@ -98,8 +98,8 @@ class WSMultiHeadDataset(torch.utils.data.Dataset):
 
         for line in open(data_path, "r"):
             image_path, label_path = line.strip().split(",")
-            self.image_list.append(image_path)
-            self.label_list.append(label_path)
+            self.image_list.append(os.path.join(data_dir, image_path))
+            self.label_list.append(os.path.join(data_dir, label_path))
 
         assert len(self.image_list) == len(self.label_list)
 

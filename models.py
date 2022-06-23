@@ -1,10 +1,11 @@
 import torch
 from torch import nn
+from functools import partial
 
 from vit import _make_pretrained_vitb_rn50_384, forward_vit, forward_flex
 
 
-class Cerberus(nn.Module):
+class CerberusMultiHead(nn.Module):
     def __init__(
         self,
         head,
@@ -14,7 +15,7 @@ class Cerberus(nn.Module):
         use_bn=False,
         enable_attention_hooks=False,
     ):
-        super(Cerberus, self).__init__()
+        super(CerberusMultiHead, self).__init__()
 
         self.channels_last = channels_last
 
@@ -47,8 +48,8 @@ class Cerberus(nn.Module):
         self.scratch.refinenet12 = _make_fusion_block(features, use_bn)
 
 
-class CerberusSegmentationModelMultiHead(Cerberus):
-    def __init__(self, **kwargs):
+class CerberusSegmentationModelMultiHead(CerberusMultiHead):
+    def __init__(self, task_dict, **kwargs):
 
         features = kwargs["features"] if "features" in kwargs else 256
 
@@ -58,29 +59,15 @@ class CerberusSegmentationModelMultiHead(Cerberus):
 
         super().__init__(head, **kwargs)
 
-        self.full_output_task_list = (
-            (
-                2,
-                [
-                    "Wood",
-                    "Painted",
-                    "Paper",
-                    "Glass",
-                    "Brick",
-                    "Metal",
-                    "Flat",
-                    "Plastic",
-                    "Textured",
-                    "Glossy",
-                    "Shiny",
-                ],
-            ),
-            (2, ["L", "M", "R", "S", "W"]),
-            (40, ["Segmentation"]),
-        )
+        self.full_output_task_list = []
 
-        for (num_classes, output_task_list) in self.full_output_task_list:
-            for it in output_task_list:
+        for v_task in task_dict.values():
+            num_classes = v_task["num_classes"]
+            task = []
+
+            for it in v_task["category"]:
+                task.append(it)
+
                 setattr(
                     self.scratch,
                     "output_" + it,
@@ -94,12 +81,13 @@ class CerberusSegmentationModelMultiHead(Cerberus):
                         nn.Conv2d(features, num_classes, kernel_size=1),
                     ),
                 )
-
                 setattr(
                     self.scratch,
                     "output_" + it + "_upsample",
                     Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
                 )
+
+            self.full_output_task_list.append(task)
 
     def get_attention(self, x, name):
         if self.channels_last == True:
@@ -139,11 +127,113 @@ class CerberusSegmentationModelMultiHead(Cerberus):
             raise ValueError(f"Not support task_i: {index}")
 
         outputs = []
-        for it in self.full_output_task_list[index][1]:
+        for it in self.full_output_task_list[index]:
             func = eval("self.scratch.output_" + it)
             out = func(path_1)
             func = eval("self.scratch.output_" + it + "_upsample")
             out = func(out)
+            outputs.append(out)
+
+        return outputs
+
+
+class CerberusSingle(nn.Module):
+    def __init__(
+        self,
+        head,
+        features=256,
+        readout="project",
+        channels_last=False,
+        use_bn=False,
+        enable_attention_hooks=False,
+    ):
+        super(CerberusSingle, self).__init__()
+
+        self.channels_last = channels_last
+
+        # Instantiate backbone and reassemble blocks
+        self.pretrained, self.scratch = _make_encoder(
+            features,
+            use_pretrained=True,
+            groups=1,
+            expand=False,
+            hooks=[0, 1, 8, 11],
+            use_vit_only=False,
+            use_readout=readout,
+            enable_attention_hooks=enable_attention_hooks,
+        )
+
+        # Instantiate sequential fusion blocks
+        self.scratch.refinenet01 = _make_fusion_block(features, use_bn)
+        self.scratch.refinenet02 = _make_fusion_block(features, use_bn)
+        self.scratch.refinenet03 = _make_fusion_block(features, use_bn)
+        self.scratch.refinenet04 = _make_fusion_block(features, use_bn)
+
+
+class CerberusSegmentationModelSingle(CerberusSingle):
+    def __init__(self, task_dict, **kwargs):
+
+        features = kwargs["features"] if "features" in kwargs else 256
+
+        kwargs["use_bn"] = True
+
+        head = None
+
+        super().__init__(head, **kwargs)
+
+        self.full_output_task_list = []
+
+        v_task = list(task_dict.values())[0]
+        num_classes = v_task["num_classes"]
+        task = []
+        for it in v_task["category"]:
+            task.append(it)
+
+            setattr(
+                self.scratch,
+                "output_" + it,
+                nn.Sequential(
+                    nn.Conv2d(
+                        features, features, kernel_size=3, padding=1, bias=False
+                    ),
+                    nn.BatchNorm2d(features),
+                    nn.ReLU(True),
+                    nn.Dropout(0.1, False),
+                    nn.Conv2d(features, num_classes, kernel_size=1),
+                ),
+            )
+
+        self.full_output_task_list.append(task)
+
+    def get_attention(self, x, name):
+        if self.channels_last == True:
+            x.contiguous(memory_format=torch.channels_last)
+
+        x = forward_flex(self.pretrained.model, x, True, name)
+
+        return x
+
+    def forward(self, x):
+        if self.channels_last == True:
+            x.contiguous(memory_format=torch.channels_last)
+
+        layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
+
+        layer_1_rn = self.scratch.layer1_rn(layer_1)
+        layer_2_rn = self.scratch.layer2_rn(layer_2)
+        layer_3_rn = self.scratch.layer3_rn(layer_3)
+        layer_4_rn = self.scratch.layer4_rn(layer_4)
+
+        path_4 = self.scratch.refinenet04(layer_3_rn.shape[-2:], layer_4_rn)
+        path_3 = self.scratch.refinenet03(layer_2_rn.shape[-2:], path_4, layer_3_rn)
+        path_2 = self.scratch.refinenet02(layer_1_rn.shape[-2:], path_3, layer_2_rn)
+        path_1 = self.scratch.refinenet01(None, path_2, layer_1_rn)
+
+        outputs = []
+        for it in self.full_output_task_list[0]:
+            func = eval("self.scratch.output_" + it)
+            out = func(path_1)
+            out = nn.functional.interpolate(out, size=x.shape[-2:], mode="bilinear", align_corners=True)
             outputs.append(out)
 
         return outputs
@@ -245,7 +335,7 @@ class FeatureFusionBlock(nn.Module):
 
         self.skip_add = nn.quantized.FloatFunctional()
 
-    def forward(self, *xs):
+    def forward(self, next_size, *xs):
         output = xs[0]
 
         if len(xs) == 2:
@@ -253,9 +343,15 @@ class FeatureFusionBlock(nn.Module):
             output = self.skip_add.add(output, res)
 
         output = self.resConfUnit2(output)
-        output = nn.functional.interpolate(
-            output, scale_factor=2, mode="bilinear", align_corners=self.align_corners
-        )
+
+        if next_size is None:
+            output = nn.functional.interpolate(
+                output, scale_factor=2, mode="bilinear", align_corners=self.align_corners
+            )
+        else:
+            output = nn.functional.interpolate(
+                output, size=next_size, mode="bilinear", align_corners=self.align_corners
+            )
 
         output = self.out_conv(output)
 
