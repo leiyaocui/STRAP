@@ -58,8 +58,8 @@ class CerberusTrain:
 
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
-            self.criterion = self.criterion.cuda()
+            self.model = self.model.cuda()
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255).cuda()
 
             train_tf = []
 
@@ -137,7 +137,7 @@ class CerberusTrain:
                 weight_decay=config["weight_decay"],
             )
 
-            self.model = self.model.cuda()
+            
 
             if config["lr_mode"] == "step":
                 lambda_func = lambda e: 0.1 ** (e // config["step"])
@@ -272,10 +272,10 @@ class CerberusTrain:
                     # loss_per_task_list[task_i][idx].update(
                     #     loss_single.item(), input.shape[0]
                     # )
+                loss = sum(loss)
 
                 self.optimizer.zero_grad(set_to_none=True)
-
-                loss = sum(loss)
+                
                 loss.backward()
                 loss_list[task_i].update(loss.item(), input.shape[0])
 
@@ -299,17 +299,17 @@ class CerberusTrain:
                 if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(ious[1].item())
+                        score.append(ious[1])
                 elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(np.nanmean(ious.cpu().numpy()))
+                        score.append(np.nanmean(ious))
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
                 score_list[task_i].update(np.nanmean(score), input.shape[0])
 
-            sol, min_norm = MinNormSolver.find_min_norm_element(grads)
+            sol, _ = MinNormSolver.find_min_norm_element(grads)
 
             # self.writer.add_scalars(
             #     f"train_min_norm_scale",
@@ -330,11 +330,11 @@ class CerberusTrain:
 
                 loss = sum(loss)
                 task_loss.append(loss)
+            loss = [sol[i] * task_loss[i] for i in range(len(self.task_root_list))]
+            loss = sum(loss)
 
             self.optimizer.zero_grad()
 
-            loss = [sol[i] * task_loss[i] for i in range(len(self.task_root_list))]
-            loss = sum(loss)
             loss.backward()
 
             self.optimizer.step()
@@ -391,11 +391,11 @@ class CerberusTrain:
                 if task_i < 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(ious[1].item())
+                        score.append(ious[1])
                 elif task_i == 2:
                     for idx in range(len(output)):
                         ious = mIoU(output[idx], target[idx])
-                        score.append(np.nanmean(ious.cpu().numpy()))
+                        score.append(np.nanmean(ious))
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
@@ -487,11 +487,11 @@ class CerberusTrain:
                     if task_i < 2:
                         for idx in range(len(output)):
                             ious = mIoU(output[idx], target[idx])
-                            score.append(ious[1].item())
+                            score.append(ious[1])
                     elif task_i == 2:
                         for idx in range(len(output)):
                             ious = mIoU(output[idx], target[idx])
-                            score.append(np.nanmean(ious.cpu().numpy()))
+                            score.append(np.nanmean(ious))
                     else:
                         raise ValueError(f"Not support task_i: {task_i}")
 

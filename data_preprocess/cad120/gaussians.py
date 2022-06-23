@@ -76,7 +76,7 @@ def train_set(cad120_path, save_path):
             shutil.copyfile(image_path, image_save_path)
             gaussians(keypoints, label_path, label_save_path)
 
-            fb.write(image_save_path + "," + label_save_path + "\n")
+            fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
         fb.close()
 
 
@@ -108,17 +108,17 @@ def val_set(cad120_path, save_path):
             shutil.copyfile(image_path, image_save_path)
             gaussians(keypoints, label_path, label_save_path)
 
-            fb.write(image_save_path + "," + label_save_path + "\n")
+            fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
         fb.close()
 
 
 if __name__ == "__main__":
     train_set(
-        "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
-        "/home/DISCOVER_summer2022/cuily/dataset/cad120",
+        "CAD120",
+        "cad120",
     )
     val_set(
-        "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
-        "/home/DISCOVER_summer2022/cuily/dataset/cad120",
+        "CAD120",
+        "cad120",
     )
 
