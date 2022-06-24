@@ -1,6 +1,6 @@
 mode: "train"
 
-data_dir: "../dataset/cad120/object"
+data_dir: "../dataset/cad120_fs/object"
 
 task:
   affordance:

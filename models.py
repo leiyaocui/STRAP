@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from functools import partial
 
 from vit import _make_pretrained_vitb_rn50_384, forward_vit, forward_flex
 
@@ -81,11 +80,11 @@ class CerberusSegmentationModelMultiHead(CerberusMultiHead):
                         nn.Conv2d(features, num_classes, kernel_size=1),
                     ),
                 )
-                setattr(
-                    self.scratch,
-                    "output_" + it + "_upsample",
-                    Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
-                )
+                # setattr(
+                #     self.scratch,
+                #     "output_" + it + "_upsample",
+                #     Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
+                # )
 
             self.full_output_task_list.append(task)
 
@@ -109,20 +108,20 @@ class CerberusSegmentationModelMultiHead(CerberusMultiHead):
         layer_4_rn = self.scratch.layer4_rn(layer_4)
 
         if index == 0:
-            path_4 = self.scratch.refinenet04(layer_4_rn)
-            path_3 = self.scratch.refinenet03(path_4, layer_3_rn)
-            path_2 = self.scratch.refinenet02(path_3, layer_2_rn)
-            path_1 = self.scratch.refinenet01(path_2, layer_1_rn)
+            path_4 = self.scratch.refinenet04(layer_3_rn.shape[-2:], layer_4_rn)
+            path_3 = self.scratch.refinenet03(layer_2_rn.shape[-2:], path_4, layer_3_rn)
+            path_2 = self.scratch.refinenet02(layer_1_rn.shape[-2:], path_3, layer_2_rn)
+            path_1 = self.scratch.refinenet01(None, path_2, layer_1_rn)
         elif index == 1:
-            path_4 = self.scratch.refinenet08(layer_4_rn)
-            path_3 = self.scratch.refinenet07(path_4, layer_3_rn)
-            path_2 = self.scratch.refinenet06(path_3, layer_2_rn)
-            path_1 = self.scratch.refinenet05(path_2, layer_1_rn)
+            path_4 = self.scratch.refinenet08(layer_3_rn.shape[-2:], layer_4_rn)
+            path_3 = self.scratch.refinenet07(layer_2_rn.shape[-2:], path_4, layer_3_rn)
+            path_2 = self.scratch.refinenet06(layer_1_rn.shape[-2:], path_3, layer_2_rn)
+            path_1 = self.scratch.refinenet05(None, path_2, layer_1_rn)
         elif index == 2:
-            path_4 = self.scratch.refinenet12(layer_4_rn)
-            path_3 = self.scratch.refinenet11(path_4, layer_3_rn)
-            path_2 = self.scratch.refinenet10(path_3, layer_2_rn)
-            path_1 = self.scratch.refinenet09(path_2, layer_1_rn)
+            path_4 = self.scratch.refinenet12(layer_3_rn.shape[-2:], layer_4_rn)
+            path_3 = self.scratch.refinenet11(layer_2_rn.shape[-2:], path_4, layer_3_rn)
+            path_2 = self.scratch.refinenet10(layer_1_rn.shape[-2:], path_3, layer_2_rn)
+            path_1 = self.scratch.refinenet09(None, path_2, layer_1_rn)
         else:
             raise ValueError(f"Not support task_i: {index}")
 
@@ -130,8 +129,9 @@ class CerberusSegmentationModelMultiHead(CerberusMultiHead):
         for it in self.full_output_task_list[index]:
             func = eval("self.scratch.output_" + it)
             out = func(path_1)
-            func = eval("self.scratch.output_" + it + "_upsample")
-            out = func(out)
+            # func = eval("self.scratch.output_" + it + "_upsample")
+            # out = func(out)
+            out = nn.functional.interpolate(out, size=x.shape[-2:], mode="bilinear", align_corners=True)
             outputs.append(out)
 
         return outputs

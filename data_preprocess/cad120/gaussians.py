@@ -51,8 +51,6 @@ def gaussians(keypoints, file_path, save_path):
 
 
 def train_set(cad120_path, save_path):
-    os.chdir(os.path.dirname(__file__))
-
     keypoints = np.loadtxt("keypoints.txt", delimiter=",")
 
     for s in ["object", "actor"]:
@@ -74,17 +72,17 @@ def train_set(cad120_path, save_path):
             label_save_path = os.path.join(labels_path, line + ".pkl")
            
             shutil.copyfile(image_path, image_save_path)
-            gaussians(keypoints, label_path, label_save_path)
+            label = loadmat(label_path)["data"]
+            label = (label > 0).astype(np.uint8)
+            with open(label_save_path, "wb") as f: 
+                pickle.dump(label, f)
+            # gaussians(keypoints, label_path, label_save_path)
 
             fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
         fb.close()
 
 
 def val_set(cad120_path, save_path):
-    os.chdir(os.path.dirname(__file__))
-
-    keypoints = np.loadtxt("keypoints.txt", delimiter=",")
-
     for s in ["object", "actor"]:
         split_path = os.path.join(save_path, s)
         os.makedirs(split_path, exist_ok=True)
@@ -106,19 +104,32 @@ def val_set(cad120_path, save_path):
             assert not os.path.exists(image_save_path) and not os.path.exists(label_save_path)
             
             shutil.copyfile(image_path, image_save_path)
-            gaussians(keypoints, label_path, label_save_path)
+            label = loadmat(label_path)["data"]
+            label = (label > 0).astype(np.uint8)
+            with open(label_save_path, "wb") as f: 
+                pickle.dump(label, f)
 
             fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
         fb.close()
 
 
 if __name__ == "__main__":
+    os.chdir(os.path.dirname(__file__))
     train_set(
-        "CAD120",
-        "cad120",
+        "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
+        "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
     )
     val_set(
-        "CAD120",
-        "cad120",
+        "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
+        "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
     )
+
+    # train_set(
+    #     "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
+    #     "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
+    # )
+    # val_set(
+    #     "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
+    #     "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
+    # )
 

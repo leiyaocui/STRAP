@@ -426,7 +426,6 @@ class CerberusMultiHeadTrain:
                 ms_output = []
 
                 for input in ms_input:
-                    input = input
                     output = self.model(input, task_i)
                     for idx in range(len(output)):
                         output[idx] = torch.nn.functional.interpolate(
@@ -530,12 +529,12 @@ class CerberusSingleTrain:
 
             train_tf.extend(
                 [
-                    transforms.RandomCropMultiHead(config["random_crop"]),
+                    # transforms.RandomCropMultiHead(config["random_crop"]),
                     transforms.RandomHorizontalFlipMultiHead(),
                     transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
-                    ),
+                    # transforms.Normalize(
+                    #     mean=config["data_mean"], std=config["data_std"]
+                    # ),
                 ]
             )
 
@@ -556,11 +555,11 @@ class CerberusSingleTrain:
 
             val_tf = transforms.Compose(
                 [
-                    transforms.RandomCropMultiHead(config["random_crop"]),
+                    # transforms.RandomCropMultiHead(config["random_crop"]),
                     transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
-                    ),
+                    # transforms.Normalize(
+                    #     mean=config["data_mean"], std=config["data_std"]
+                    # ),
                 ]
             )
 
@@ -602,24 +601,22 @@ class CerberusSingleTrain:
             torch.backends.cudnn.benchmark = True
 
         elif self.mode == "test":
-            self.ms_scales = config["ms_scales"]
             self.save_vis = config["save_vis"]
             self.have_gt = config["have_gt"]
 
             test_tf = transforms.Compose(
                 [
                     transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
-                    ),
+                    # transforms.Normalize(
+                    #     mean=config["data_mean"], std=config["data_std"]
+                    # ),
                 ]
             )
 
             dataset_test = SingleDataset(
                 config["data_dir"],
-                "val_attribute",
+                "val_affordance",
                 test_tf,
-                ms_scale=self.ms_scales,
                 out_name=True,
             )
 
@@ -658,7 +655,7 @@ class CerberusSingleTrain:
                 self.train(epoch)
                 score = self.validate(epoch)
                 self.scheduler.step()
-
+ 
                 is_best = score > self.best_score
                 self.best_score = max(score, self.best_score)
                 state = {
@@ -678,7 +675,7 @@ class CerberusSingleTrain:
         self.model.train()
 
         loss_list = AverageMeter()
-        loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list))]
+        loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
         score_list = AverageMeter()
 
         for input, target in tqdm(
@@ -697,8 +694,13 @@ class CerberusSingleTrain:
 
             loss = []
             for idx in range(len(output)):
+                loss_single = self.criterion(output[idx], target[idx])
                 loss.append(self.criterion(output[idx], target[idx]))
+                loss_per_task_list[idx].update(
+                    loss_single.item(), input.shape[0]
+                )
             loss = sum(loss)
+            loss_list.update(loss.item(), input.shape[0])
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -710,7 +712,7 @@ class CerberusSingleTrain:
         self.writer.add_scalar(
             f"train_epoch_{self.task_root_list[0]}_score_avg", score_list.avg, global_step=epoch
         )
-        for i, it in enumerate(self.task_list[i]):
+        for i, it in enumerate(self.task_list[0]):
             self.writer.add_scalar(
                 f"train_epoch_task_{it}_loss_avg",
                 loss_per_task_list[i].avg,
@@ -722,8 +724,9 @@ class CerberusSingleTrain:
         self.model.eval()
 
         loss_list = AverageMeter()
-        loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list))]
+        # loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
         score_list = AverageMeter()
+        score_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
 
         for input, target in tqdm(
             self.val_loader, desc=f"[Val] Epoch {epoch+1:04d}", ncols=80
@@ -737,9 +740,9 @@ class CerberusSingleTrain:
             for idx in range(len(output)):
                 loss_single = self.criterion(output[idx], target[idx])
                 loss.append(loss_single)
-                loss_per_task_list[idx].update(
-                    loss_single.item(), input.shape[0]
-                )
+                # loss_per_task_list[idx].update(
+                #     loss_single.item(), input.shape[0]
+                # )
             loss = sum(loss)
             loss_list.update(loss.item(), input.shape[0])
 
@@ -747,6 +750,7 @@ class CerberusSingleTrain:
             for idx in range(len(output)):
                 ious = mIoU(output[idx], target[idx])
                 score.append(ious[1])
+                score_per_task_list[idx].update(ious[1], input.shape[0])
             score_list.update(np.nanmean(score), input.shape[0])
 
         self.writer.add_scalar(
@@ -755,10 +759,15 @@ class CerberusSingleTrain:
         self.writer.add_scalar(
             f"val_epoch_{self.task_root_list[0]}_score_avg", score_list.avg, global_step=epoch
         )
-        for i, it in enumerate(self.task_list[i]):
+        for i, it in enumerate(self.task_list[0]):
+            # self.writer.add_scalar(
+            #     f"val_epoch_task_{it}_loss_avg",
+            #     loss_per_task_list[i].avg,
+            #     global_step=epoch,
+            # )
             self.writer.add_scalar(
-                f"val_epoch_task_{it}_loss_avg",
-                loss_per_task_list[i].avg,
+                f"val_epoch_task_{it}_score_avg",
+                score_per_task_list[i].avg,
                 global_step=epoch,
             )
 
@@ -778,42 +787,34 @@ class CerberusSingleTrain:
             print(f"File name: {name}")
             name = os.path.basename(name)
 
-            base_input = data[0]
-            ms_input = data[-2]
-
+            input = data[0]
             if have_gt:
                 target = data[1]
 
-            ms_output = []
-
-            for input in ms_input:
-                input = input
-                output = self.model(input)
-                for idx in range(len(output)):
-                    output[idx] = torch.nn.functional.interpolate(
-                        output[idx],
-                        base_input.shape[2:],
-                        mode="bilinear",
-                        align_corners=True,
-                    ).numpy()
-                ms_output.append(output)
-
-            ms_output = torch.as_tensor(np.array(ms_output))
-            output = ms_output.sum(dim=0)
+            output = self.model(input)
 
             if save_vis:
                 assert ".png" in name or ".jpg" in name or ".bmp" in name
                 for idx in range(len(output)):
                     file_name = (
-                        f"{data_i}/{self.task_list[idx]}/{name[:-4]}.png"
+                        f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}.png"
                     )
                     pred = output[idx].argmax(dim=1)
-                    save_image(pred, file_name, save_dir)
+                    # save_image(pred, file_name, save_dir)
                     save_colorful_image(
                         pred, file_name, f"{save_dir}_color", PALETTE
                     )
 
             if have_gt:
+                for idx in range(len(target)):
+                    file_name = (
+                        f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}_gt.png"
+                    )
+                    pred = target[idx].argmax(dim=0)
+                    # save_image(pred, file_name, save_dir)
+                    save_colorful_image(
+                        pred, file_name, f"{save_dir}_color", PALETTE
+                    )
                 score = []
                 for idx in range(len(output)):
                     ious = mIoU(output[idx], target[idx])
@@ -840,7 +841,14 @@ class CerberusSingleTrain:
 
 if __name__ == "__main__":
     # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
     # cerberus = CerberusMultiHeadTrain("train_multihead_nyud2.yaml")
     # cerberus.exec()
-    cerberus = CerberusSingleTrain("train_weak_cad120.yaml")
+
+    # cerberus = CerberusSingleTrain("train_weak_cad120.yaml")
+    # cerberus.exec()
+    # cerberus = CerberusSingleTrain("test_weak_cad120.yaml")
+    # cerberus.exec()
+    
+    cerberus = CerberusSingleTrain("train_cad120.yaml")
     cerberus.exec()
