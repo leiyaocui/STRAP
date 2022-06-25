@@ -9,7 +9,7 @@ task:
 
 random_crop: 321
 random_rotate: 10
-random_scale: 0
+random_scale: 2
 data_mean: [0.40787450980392154, 0.4575254901960784, 0.481078431372549]
 data_std: [1, 1, 1]
 

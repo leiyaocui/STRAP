@@ -177,7 +177,7 @@ class ToTensorMultiHead:
         image = image.float().div(255)
         if label is not None:
             for i in range(len(label)):
-                label[i] = torch.LongTensor(np.asarray(label[i], dtype=np.int))
+                label[i] = torch.LongTensor(np.asarray(label[i], dtype=np.int32))
 
         return image, label
 

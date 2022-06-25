@@ -11,14 +11,14 @@ def get_llkh(allrc, btemp, crop_size):
     covrc = np.asarray([[btemp[2], btemp[4]], [btemp[4], btemp[3]]])
     diff = allrc - meanrc
     expt = -0.5 * np.sum((diff @ np.linalg.pinv(covrc) * diff), axis=1)
-    const = 1 / np.sqrt(np.linalg.det(covrc) * 2 * np.pi)
+    const = 1 / (np.sqrt(np.linalg.det(covrc)) * 2 * np.pi)
     llkh = (const * np.exp(expt)).reshape((crop_size, crop_size))
     return llkh
 
 
 def gaussians(keypoints, file_path, save_path):
     crop_size = 321
-    gaussian_size = 50
+    gaussian_size = 10
 
     file_name = os.path.basename(file_path)
     image_id = int(file_name[1:5])
@@ -34,12 +34,12 @@ def gaussians(keypoints, file_path, save_path):
 
     for i in range(input.shape[2]):
         if np.max(np.max(input[:, :, i])) > 0:
-            y = keypoints[keypoints[:, 0] == image_id, :]
-            y = y[y[:, 1] == bb_id, :]
-            y = y[y[:, 2] == i + 1, :]
+            y = keypoints[keypoints[:, 0].astype(np.int32) == image_id, :]
+            y = y[y[:, 1].astype(np.int32) == bb_id, :]
+            y = y[y[:, 2].astype(np.int32) == i + 1, :]
 
             for j in range(y.shape[0]):
-                btemp = [y[j, 3], y[j, 4], gaussian_size ** 2, gaussian_size ** 2, 0]
+                btemp = [y[j, 4], y[j, 3], gaussian_size ** 2, gaussian_size ** 2, 0]
                 llkh = get_llkh(allrc, btemp, crop_size)
                 llkh = llkh > (np.max(np.max(llkh)) / np.e)
                 data[:, :, i] = np.maximum(data[:, :, i], llkh.astype(np.uint8))
@@ -72,11 +72,11 @@ def train_set(cad120_path, save_path):
             label_save_path = os.path.join(labels_path, line + ".pkl")
            
             shutil.copyfile(image_path, image_save_path)
-            label = loadmat(label_path)["data"]
-            label = (label > 0).astype(np.uint8)
-            with open(label_save_path, "wb") as f: 
-                pickle.dump(label, f)
-            # gaussians(keypoints, label_path, label_save_path)
+            # label = loadmat(label_path)["data"]
+            # label = (label > 0).astype(np.uint8)
+            # with open(label_save_path, "wb") as f: 
+            #     pickle.dump(label, f)
+            gaussians(keypoints, label_path, label_save_path)
 
             fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
         fb.close()
@@ -115,21 +115,10 @@ def val_set(cad120_path, save_path):
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
-    train_set(
-        "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
-        "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
-    )
-    val_set(
-        "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
-        "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
-    )
 
-    # train_set(
-    #     "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
-    #     "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
-    # )
-    # val_set(
-    #     "/home/DISCOVER_summer2022/cuily/dataset/CAD120",
-    #     "/home/DISCOVER_summer2022/cuily/dataset/cad120_fs",
-    # )
+    source_path = "/home/DISCOVER_summer2022/cuily/dataset/CAD120"
+    output_path = "/home/DISCOVER_summer2022/cuily/dataset/cad120"
+    shutil.rmtree(output_path)
 
+    train_set(source_path, output_path)
+    val_set(source_path, output_path)

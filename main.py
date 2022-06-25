@@ -529,12 +529,12 @@ class CerberusSingleTrain:
 
             train_tf.extend(
                 [
-                    # transforms.RandomCropMultiHead(config["random_crop"]),
+                    transforms.RandomCropMultiHead(config["random_crop"]),
                     transforms.RandomHorizontalFlipMultiHead(),
                     transforms.ToTensorMultiHead(),
-                    # transforms.Normalize(
-                    #     mean=config["data_mean"], std=config["data_std"]
-                    # ),
+                    transforms.Normalize(
+                        mean=config["data_mean"], std=config["data_std"]
+                    ),
                 ]
             )
 
@@ -555,11 +555,11 @@ class CerberusSingleTrain:
 
             val_tf = transforms.Compose(
                 [
-                    # transforms.RandomCropMultiHead(config["random_crop"]),
+                    transforms.RandomCropMultiHead(config["random_crop"]),
                     transforms.ToTensorMultiHead(),
-                    # transforms.Normalize(
-                    #     mean=config["data_mean"], std=config["data_std"]
-                    # ),
+                    transforms.Normalize(
+                        mean=config["data_mean"], std=config["data_std"]
+                    ),
                 ]
             )
 
@@ -607,9 +607,9 @@ class CerberusSingleTrain:
             test_tf = transforms.Compose(
                 [
                     transforms.ToTensorMultiHead(),
-                    # transforms.Normalize(
-                    #     mean=config["data_mean"], std=config["data_std"]
-                    # ),
+                    transforms.Normalize(
+                        mean=config["data_mean"], std=config["data_std"]
+                    ),
                 ]
             )
 
@@ -689,7 +689,8 @@ class CerberusSingleTrain:
             score = []
             for idx in range(len(output)):
                 ious = mIoU(output[idx], target[idx])
-                score.append(ious[1])
+                ious = np.nanmean(ious)
+                score.append(ious)
             score_list.update(np.nanmean(score), input.shape[0])
 
             loss = []
@@ -749,8 +750,9 @@ class CerberusSingleTrain:
             score = []
             for idx in range(len(output)):
                 ious = mIoU(output[idx], target[idx])
-                score.append(ious[1])
-                score_per_task_list[idx].update(ious[1], input.shape[0])
+                ious = np.nanmean(ious)
+                score.append(ious)
+                score_per_task_list[idx].update(ious, input.shape[0])
             score_list.update(np.nanmean(score), input.shape[0])
 
         self.writer.add_scalar(
@@ -845,10 +847,10 @@ if __name__ == "__main__":
     # cerberus = CerberusMultiHeadTrain("train_multihead_nyud2.yaml")
     # cerberus.exec()
 
-    # cerberus = CerberusSingleTrain("train_weak_cad120.yaml")
-    # cerberus.exec()
+    cerberus = CerberusSingleTrain("train_weak_cad120.yaml")
+    cerberus.exec()
     # cerberus = CerberusSingleTrain("test_weak_cad120.yaml")
     # cerberus.exec()
     
-    cerberus = CerberusSingleTrain("train_cad120.yaml")
-    cerberus.exec()
+    # cerberus = CerberusSingleTrain("train_cad120.yaml")
+    # cerberus.exec()
