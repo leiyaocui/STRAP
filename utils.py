@@ -34,7 +34,7 @@ def per_class_iu(hist):
 
 
 @torch.no_grad()
-def mIoU(output, target):
+def IoU(output, target):
     num_classes = output.shape[1]
     pred = output.argmax(dim=1)
     hist = torch.zeros((num_classes, num_classes), device=output.device)

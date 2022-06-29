@@ -12,7 +12,7 @@ from datasets import MultiHeadDataset, ConcatMultiHeadDataset, SingleDataset
 import data_transforms as transforms
 from models import CerberusSegmentationModelMultiHead, CerberusSegmentationModelSingle
 from utils import (
-    mIoU,
+    IoU,
     MinNormSolver,
     AverageMeter,
     AFFORDANCE_PALETTE,
@@ -282,21 +282,19 @@ class CerberusMultiHeadTrain:
 
                 score = []
                 if task_i < 2:
-                    for i, (output, target) in enumerate(zip(output, target)):
-                        for j in range(len(output.shape[0])):
-                            iou = mIoU(output[j], target[j])[1]
-                            if not np.isnan(iou):
-                                score.append(iou)
+                    for i in range(len(output)):
+                        iou = IoU(output[i], target[i])[1]
+                        if not np.isnan(iou):
+                            score.append(iou)
                 elif task_i == 2:
-                    for i, (output, target) in enumerate(zip(output, target)):
-                        for j in range(len(output.shape[0])):
-                            iou = np.nanmean(mIoU(output[j], target[j]))
-                            if not np.isnan(iou):
-                                score.append(iou)
+                    for i in range(len(output)):
+                        iou = np.nanmean(IoU(output[i], target[i]))
+                        if not np.isnan(iou):
+                            score.append(iou)
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
-                if score.size > 0:
+                if len(score) > 0:
                     score_list[task_i].update(np.mean(score), len(score))
 
             sol, _ = MinNormSolver.find_min_norm_element(grads)
@@ -374,21 +372,19 @@ class CerberusMultiHeadTrain:
 
                 score = []
                 if task_i < 2:
-                    for i, (output, target) in enumerate(zip(output, target)):
-                        for j in range(len(output.shape[0])):
-                            iou = mIoU(output[j], target[j])[1]
-                            if not np.isnan(iou):
-                                score.append(iou)
+                    for i in range(len(output)):
+                        iou = IoU(output[i], target[i])[1]
+                        if not np.isnan(iou):
+                            score.append(iou)
                 elif task_i == 2:
-                    for i, (output, target) in enumerate(zip(output, target)):
-                        for j in range(len(output.shape[0])):
-                            iou = np.nanmean(mIoU(output[j], target[j]))
-                            if not np.isnan(iou):
-                                score.append(iou)
+                    for i in range(len(output)):
+                        iou = np.nanmean(IoU(output[i], target[i]))
+                        if not np.isnan(iou):
+                            score.append(iou)
                 else:
                     raise ValueError(f"Not support task_i: {task_i}")
 
-                if score.size > 0:
+                if len(score) > 0:
                     score_list[task_i].update(np.mean(score), len(score))
 
 
@@ -475,17 +471,15 @@ class CerberusMultiHeadTrain:
                 if have_gt:
                     score = []
                     if task_i < 2:
-                        for i, (output, target) in enumerate(zip(output, target)):
-                            for j in range(len(output.shape[0])):
-                                iou = mIoU(output[j], target[j])[1]
-                                if not torch.isnan(iou):
-                                    score.append(iou)
+                        for i in range(len(output)):
+                            iou = IoU(output[i], target[i])[1]
+                            if not np.isnan(iou):
+                                score.append(iou)
                     elif task_i == 2:
-                        for i, (output, target) in enumerate(zip(output, target)):
-                            for j in range(len(output.shape[0])):
-                                iou = np.nanmean(mIoU(output[j], target[j]))
-                                if not torch.isnan(iou):
-                                    score.append(iou)
+                        for i in range(len(output)):
+                            iou = np.nanmean(IoU(output[i], target[i]))
+                            if not np.isnan(iou):
+                                score.append(iou)
                     else:
                         raise ValueError(f"Not support task_i: {task_i}")
                     
@@ -531,7 +525,7 @@ class CerberusSingleTrain:
             self.epochs = config["epochs"]
 
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
-
+            
             self.model = self.model.cuda()
             self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255).cuda()
 
@@ -704,12 +698,12 @@ class CerberusSingleTrain:
             output = self.model(input)
 
             score = []
-            for i, (output, target) in enumerate(zip(output, target)):
-                for j in range(len(output.shape[0])):
-                    iou = mIoU(output[j], target[j])[1]
-                    if not np.isnan(iou):
-                        score.append(iou)
-            if score.size > 0:
+            for i in range(len(output)):
+                iou = IoU(output[i], target[i])[1]
+                if not np.isnan(iou):
+                    score.append(iou)
+
+            if len(score) > 0:
                 score_list.update(np.mean(score), len(score))
 
             loss = []
@@ -767,13 +761,13 @@ class CerberusSingleTrain:
             loss_list.update(loss.item(), input.shape[0])
 
             score = []
-            for i, (output, target) in enumerate(zip(output, target)):
-                for j in range(len(output.shape[0])):
-                    iou = mIoU(output[j], target[j])[1]
-                    if not np.isnan(iou):
-                        score.append(iou)
-                        score_per_task_list[i].update(iou)
-            if score.size > 0:
+            for i in range(len(output)):
+                iou = IoU(output[i], target[i])[1]
+                if not np.isnan(iou):
+                    score.append(iou)
+                    score_per_task_list[i].update(iou)
+
+            if len(score) > 0:
                 score_list.update(np.mean(score), len(score))
 
         self.writer.add_scalar(
@@ -840,11 +834,10 @@ class CerberusSingleTrain:
                     )
 
                 score = []
-                for i, (output, target) in enumerate(zip(output, target)):
-                    for j in range(len(output.shape[0])):
-                        iou = mIoU(output[j], target[j])[1]
-                        if not np.isnan(iou):
-                            score.append(iou)
+                for i in range(len(output)):
+                    iou = IoU(output[i], target[i])[1]
+                    if not np.isnan(iou):
+                        score.append(iou)
                 score = np.mean(score)
 
                 print(f"Task {self.task_root_list[0]} score: {score:.2f}")
