@@ -36,7 +36,7 @@ def per_class_iu(hist):
 @torch.no_grad()
 def mIoU(output, target):
     num_classes = output.shape[1]
-    _, pred = output.max(dim=1)
+    pred = output.argmax(dim=1)
     hist = torch.zeros((num_classes, num_classes), device=output.device)
     hist += fast_hist(pred.flatten(), target.flatten(), num_classes)
     ious = per_class_iu(hist) * 100
@@ -50,7 +50,7 @@ class MinNormSolver:
     @torch.no_grad()
     def _min_norm_element_from2(v1v1, v1v2, v2v2):
         """
-        Analytical solution for min_{c} |cx_1 + (1-c)x_2|_2^2
+        Analytical  solution for min_{c} |cx_1 + (1-c)x_2|_2^2
         d is the distance (objective) optimzed
         v1v1 = <x1,x1>
         v1v2 = <x1,x2>
