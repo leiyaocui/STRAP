@@ -86,7 +86,7 @@ class MultiHeadDataset(torch.utils.data.Dataset):
         return len(self.image_list)
 
 
-class SingleDataset(torch.utils.data.Dataset):
+class EMDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, phase, transforms, out_name=False):
         self.transforms = transforms
         self.out_name = out_name
@@ -116,12 +116,12 @@ class SingleDataset(torch.utils.data.Dataset):
         with open(self.label_list[index], "rb") as fb:
             label_pkl = pickle.load(fb)
 
-        data.append([Image.fromarray(label_pkl[:, :, i]) for i in range(label_pkl.shape[2])])
+        data.append([Image.fromarray(label_pkl[i, :, :]) for i in range(label_pkl.shape[0])])
 
         data = list(self.transforms(*data))
 
         if self.out_name:
-            data.append(self.image_list[index])
+            data.append(self.label_list[index])
 
         return tuple(data)
 

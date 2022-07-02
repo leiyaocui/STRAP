@@ -2,10 +2,12 @@ import os
 from PIL import Image
 import numpy as np
 import torch
+import pickle
 
 
 class AverageMeter:
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -187,6 +189,14 @@ class MinNormSolver:
             if torch.sum(torch.abs(change)).item() < MinNormSolver.STOP_CRIT:
                 return sol_vec, nd
             sol_vec = new_sol_vec
+
+
+@torch.no_grad()
+def update_label(data, file_path):
+    data = data.cpu().numpy()
+    for i in range(data.shape[0]):
+        with open(file_path[i], "wb") as fb:
+            pickle.dump(data[i], fb)
 
 
 @torch.no_grad()

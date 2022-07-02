@@ -18,14 +18,14 @@ def get_llkh(allrc, btemp, crop_size):
 
 def gaussians(keypoints, file_path, save_path):
     crop_size = 321
-    gaussian_size = 50
+    gaussian_size = 20
 
     file_name = os.path.basename(file_path)
     image_id = int(file_name[1:5])
     bb_id = int(file_name[6])
 
     input = loadmat(file_path)["data"]
-    data = np.zeros((crop_size, crop_size, input.shape[2]))
+    data = np.zeros((input.shape[2], crop_size, crop_size))
 
     crop_range = np.arange(1, crop_size + 1).reshape(1, -1)
     allr = np.tile(crop_range, (1, crop_size)).reshape(-1, 1)
@@ -42,7 +42,7 @@ def gaussians(keypoints, file_path, save_path):
                 btemp = [y[j, 4], y[j, 3], gaussian_size ** 2, gaussian_size ** 2, 0]
                 llkh = get_llkh(allrc, btemp, crop_size)
                 llkh = llkh > (np.max(np.max(llkh)) / np.e)
-                data[:, :, i] = np.maximum(data[:, :, i], llkh.astype(np.uint8))
+                data[i, :, :] = np.maximum(data[i, :, :], llkh.astype(np.uint8))
 
     data = data.astype(np.uint8)
 
@@ -50,75 +50,70 @@ def gaussians(keypoints, file_path, save_path):
         pickle.dump(data, f)
 
 
-def train_set(cad120_path, save_path):
+def train_set(cad120_path, save_path, split_mode):
     keypoints = np.loadtxt("keypoints.txt", delimiter=",")
 
-    for s in ["object", "actor"]:
-        split_path = os.path.join(save_path, s)
-        os.makedirs(split_path, exist_ok=True)
+    os.makedirs(save_path, exist_ok=True)
 
-        images_path = os.path.join(split_path, "affordance", "images")
-        labels_path = os.path.join(split_path, "affordance", "labels")
-        os.makedirs(images_path, exist_ok=True)
-        os.makedirs(labels_path, exist_ok=True)
+    images_path = os.path.join(save_path, "affordance", "images")
+    labels_path = os.path.join(save_path, "affordance", "labels")
+    os.makedirs(images_path, exist_ok=True)
+    os.makedirs(labels_path, exist_ok=True)
 
-        fb = open(os.path.join(split_path, "train_affordance.txt"), "w")
-        for line in tqdm(open(f"train_{s}_split_id.txt", "r"), ncols=80):
-            line = line.strip()
+    fb = open(os.path.join(save_path, "train_affordance.txt"), "w")
+    for line in tqdm(open(f"train_{split_mode}_split_id.txt", "r"), ncols=80):
+        line = line.strip()
 
-            image_path = os.path.join(cad120_path, "object_crop_images", line + ".png")
-            image_save_path = os.path.join(images_path, line + ".png")
-            label_path = os.path.join(cad120_path, "segmentation_mat", line + "_binary_multilabel.mat")
-            label_save_path = os.path.join(labels_path, line + ".pkl")
-           
-            shutil.copyfile(image_path, image_save_path)
-            # label = loadmat(label_path)["data"]
-            # label = (label > 0).astype(np.uint8)
-            # with open(label_save_path, "wb") as f: 
-            #     pickle.dump(label, f)
-            gaussians(keypoints, label_path, label_save_path)
+        image_path = os.path.join(cad120_path, "object_crop_images", line + ".png")
+        image_save_path = os.path.join(images_path, line + ".png")
+        label_path = os.path.join(cad120_path, "segmentation_mat", line + "_binary_multilabel.mat")
+        label_save_path = os.path.join(labels_path, line + ".pkl")
+        
+        shutil.copyfile(image_path, image_save_path)
+        gaussians(keypoints, label_path, label_save_path)
 
-            fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
-        fb.close()
+        fb.write(os.path.relpath(image_save_path, save_path) + "," + os.path.relpath(label_save_path, save_path) + "\n")
+    fb.close()
 
 
-def val_set(cad120_path, save_path):
-    for s in ["object", "actor"]:
-        split_path = os.path.join(save_path, s)
-        os.makedirs(split_path, exist_ok=True)
+def val_set(cad120_path, save_path, split_mode):
+    os.makedirs(save_path, exist_ok=True)
 
-        images_path = os.path.join(split_path, "affordance", "images")
-        labels_path = os.path.join(split_path, "affordance", "labels")
-        os.makedirs(images_path, exist_ok=True)
-        os.makedirs(labels_path, exist_ok=True)
+    images_path = os.path.join(save_path, "affordance", "images")
+    labels_path = os.path.join(save_path, "affordance", "labels")
+    os.makedirs(images_path, exist_ok=True)
+    os.makedirs(labels_path, exist_ok=True)
 
-        fb = open(os.path.join(split_path, "val_affordance.txt"), "w")
-        for line in tqdm(open(f"test_{s}_split_id.txt", "r"), ncols=80):
-            line = line.strip()
+    fb = open(os.path.join(save_path, "val_affordance.txt"), "w")
+    for line in tqdm(open(f"test_{split_mode}_split_id.txt", "r"), ncols=80):
+        line = line.strip()
 
-            image_path = os.path.join(cad120_path, "object_crop_images", line + ".png")
-            image_save_path = os.path.join(images_path, line + ".png")
-            label_path = os.path.join(cad120_path, "segmentation_mat", line + "_binary_multilabel.mat")
-            label_save_path = os.path.join(labels_path, line + ".pkl")
+        image_path = os.path.join(cad120_path, "object_crop_images", line + ".png")
+        image_save_path = os.path.join(images_path, line + ".png")
+        label_path = os.path.join(cad120_path, "segmentation_mat", line + "_binary_multilabel.mat")
+        label_save_path = os.path.join(labels_path, line + ".pkl")
 
-            assert not os.path.exists(image_save_path) and not os.path.exists(label_save_path)
-            
-            shutil.copyfile(image_path, image_save_path)
-            label = loadmat(label_path)["data"]
-            label = (label > 0).astype(np.uint8)
-            with open(label_save_path, "wb") as f: 
-                pickle.dump(label, f)
+        assert not os.path.exists(image_save_path) and not os.path.exists(label_save_path)
+        
+        shutil.copyfile(image_path, image_save_path)
+        label = loadmat(label_path)["data"]
+        label = (label > 0).astype(np.uint8).transpose((2, 0, 1))
+        with open(label_save_path, "wb") as f: 
+            pickle.dump(label, f)
 
-            fb.write(os.path.relpath(image_save_path, split_path) + "," + os.path.relpath(label_save_path, split_path) + "\n")
-        fb.close()
+        fb.write(os.path.relpath(image_save_path, save_path) + "," + os.path.relpath(label_save_path, save_path) + "\n")
+    fb.close()
 
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
-    source_path = "/home/DISCOVER_summer2022/cuily/dataset/CAD120"
-    output_path = "/home/DISCOVER_summer2022/cuily/dataset/cad120"
-    shutil.rmtree(output_path)
+    split_mode = "object"
 
-    train_set(source_path, output_path)
-    val_set(source_path, output_path)
+    source_path = "/home/DISCOVER_summer2022/cuily/dataset/CAD120"
+    output_path = os.path.join("/home/DISCOVER_summer2022/cuily/dataset/cad120", split_mode)
+    if os.path.exists(output_path):
+        shutil.rmtree(output_path)
+
+    train_set(source_path, output_path, split_mode)
+    val_set(source_path, output_path, split_mode)

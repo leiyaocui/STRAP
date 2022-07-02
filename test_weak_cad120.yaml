@@ -7,8 +7,9 @@ task:
     num_classes: 2
     category: ["Openable", "Cuttable", "Pourable", "Containable", "Supportable", "Holdable"]
 
-data_mean: [0.40787450980392154, 0.4575254901960784, 0.481078431372549]
-data_std: [1, 1, 1]
+data_mean: [0.519519957682635, 0.416942057728106, 0.437531293813372]
+data_std: [0.264511490972910, 0.275430758070024, 0.283129684446284]
+
 save_vis: true
 have_gt: true
 
