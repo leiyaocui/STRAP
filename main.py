@@ -240,7 +240,7 @@ class CerberusSingleTrain:
                     score.append(iou)
 
             if len(score) > 0:
-                score_list.update(np.mean(score), len(score))
+                score_list.update(np.mean(score), input.shape[0])
 
             loss = []
             for idx in range(len(output)):
@@ -269,17 +269,20 @@ class CerberusSingleTrain:
                 global_step=epoch,
             )
 
+        momentum =  0.7
+
         with torch.no_grad():
             for input, target, file_path in tqdm(
                 self.update_train_loader, desc=f"[UpdateTrain] Epoch {epoch+1:04d}", ncols=80
             ):
                 input = input.cuda(non_blocking=True)
-                for i in range(len(target)):
-                    target[i] = target[i].cuda(non_blocking=True)
+                target = torch.stack(target, dim=1).cuda(non_blocking=True)
                 output = self.model(input)
 
                 output = torch.stack(output, dim=1)
-                output = output.argmax(dim=2).int()
+                output = output.argmax(dim=2)
+
+                output = torch.sign(target * momentum + output * (1 - momentum)).int()
 
                 update_label(output, file_path)
 
@@ -315,10 +318,10 @@ class CerberusSingleTrain:
                 iou = IoU(output[i], target[i])[1]
                 if not np.isnan(iou):
                     score.append(iou)
-                    score_per_task_list[i].update(iou)
+                    score_per_task_list[i].update(iou, input.shape[0])
 
             if len(score) > 0:
-                score_list.update(np.mean(score), len(score))
+                score_list.update(np.mean(score), input.shape[0])
 
         self.writer.add_scalar(
             f"val_epoch_{self.task_root_list[0]}_loss_avg", loss_list.avg, global_step=epoch
@@ -388,7 +391,7 @@ class CerberusSingleTrain:
                     iou = IoU(output[i], target[i])[1]
                     if not np.isnan(iou):
                         score.append(iou)
-                score = np.mean(score)
+                score = np.mean(score) / input.shape[0]
 
                 print(f"Task {self.task_root_list[0]} score: {score:.2f}")
 
