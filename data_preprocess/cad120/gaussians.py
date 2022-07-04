@@ -18,7 +18,7 @@ def get_llkh(allrc, btemp, crop_size):
 
 def gaussians(keypoints, file_path, save_path):
     crop_size = 321
-    gaussian_size = 20
+    gaussian_size = 10
 
     file_name = os.path.basename(file_path)
     image_id = int(file_name[1:5])
@@ -113,8 +113,8 @@ if __name__ == "__main__":
     source_path = "/home/DISCOVER_summer2022/cuily/dataset/CAD120"
     output_path = os.path.join("/home/DISCOVER_summer2022/cuily/dataset/cad120", split_mode)
     
-    if os.path.exists(output_path):
-        shutil.rmtree(output_path)
+    # if os.path.exists(output_path):
+    #     shutil.rmtree(output_path)
 
     train_set(source_path, output_path, split_mode)
     val_set(source_path, output_path, split_mode)

@@ -20,6 +20,7 @@ from utils import (
     save_colorful_image,
 )
 
+
 class CerberusSingleTrain:
     def __init__(self, yaml_path):
         config = yaml.safe_load(open(yaml_path, "r"))
@@ -39,8 +40,15 @@ class CerberusSingleTrain:
         if self.mode == "train":
             self.epochs = config["epochs"]
 
+            keypoint_list = np.loadtxt(config["keypoint_file"], delimiter=",")
+
+            self.keypoint_dict = {}
+            for i in range(keypoint_list.shape[0]):
+                key = f"1{int(keypoint_list[i, 0]):04d}_{int(keypoint_list[i, 1])}_{int(keypoint_list[i, 2])}"
+                self.keypoint_dict[key] = [keypoint_list[i, 4], keypoint_list[i, 3]]
+
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
-            
+
             self.model = self.model.cuda()
             self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255).cuda()
 
@@ -89,14 +97,17 @@ class CerberusSingleTrain:
             )
 
             dataset_update_train = EMDataset(
-                config["data_dir"], f"train_{self.task_root_list[0]}", update_train_tf, out_name=True
+                config["data_dir"],
+                f"train_{self.task_root_list[0]}",
+                update_train_tf,
+                out_name=True,
             )
 
             self.update_train_loader = DataLoader(
                 dataset_update_train,
-                batch_size=config["batch_size"],
+                batch_size=1,
                 shuffle=False,
-                num_workers=config["workers"],
+                num_workers=4,
                 pin_memory=True,
                 drop_last=False,
             )
@@ -161,10 +172,7 @@ class CerberusSingleTrain:
             )
 
             dataset_test = EMDataset(
-                config["data_dir"],
-                "val_affordance",
-                test_tf,
-                out_name=True,
+                config["data_dir"], "val_affordance", test_tf, out_name=True,
             )
 
             self.test_loader = DataLoader(
@@ -202,7 +210,7 @@ class CerberusSingleTrain:
                 self.train(epoch)
                 score = self.validate(epoch)
                 self.scheduler.step()
- 
+
                 is_best = score > self.best_score
                 self.best_score = max(score, self.best_score)
                 state = {
@@ -269,22 +277,48 @@ class CerberusSingleTrain:
                 global_step=epoch,
             )
 
-        momentum =  0.7
-
         with torch.no_grad():
             for input, target, file_path in tqdm(
-                self.update_train_loader, desc=f"[UpdateTrain] Epoch {epoch+1:04d}", ncols=80
+                self.update_train_loader,
+                desc=f"[UpdateTrain] Epoch {epoch+1:04d}",
+                ncols=80,
             ):
                 input = input.cuda(non_blocking=True)
-                target = torch.stack(target, dim=1).cuda(non_blocking=True)
+                file_path = file_path[0]
+                id = os.path.basename(file_path).split(".")[0]
+
                 output = self.model(input)
 
-                output = torch.stack(output, dim=1)
-                output = output.argmax(dim=2)
+                for i in range(len(output)):
+                    output[i] = output[i].argmax(dim=1).cpu()
 
-                output = torch.sign(target * momentum + output * (1 - momentum)).int()
+                for i, it in enumerate(output):
+                    key = f"{id}_{i+1}"
+                    if key not in self.keypoint_dict.keys():
+                        continue
 
-                update_label(output, file_path)
+                    keypoint = self.keypoint_dict[f"{id}_{i+1}"]
+                    keypoint = np.asarray(
+                        [
+                            [int(keypoint[0]), int(keypoint[0]) + 1],
+                            [int(keypoint[1]), int(keypoint[1]) + 1],
+                        ]
+                    )
+
+                    # only support batch_size = 1.
+                    if (
+                        it[0, keypoint[0, 0], keypoint[1, 0]] == 1
+                        and it[0, keypoint[0, 0], keypoint[1, 1]] == 1
+                        and it[0, keypoint[0, 1], keypoint[1, 0]] == 1
+                        and it[0, keypoint[0, 1], keypoint[1, 1]] == 1
+                    ):
+                        output[i] = np.sign(target[i] + it).squeeze(axis=0)
+                    else:
+                        output[i] = np.sign(target[i]).squeeze(axis=0)
+
+                data = np.stack(output, axis=0).astype(np.uint8)
+
+                update_label(data, file_path)
 
     @torch.no_grad()
     def validate(self, epoch):
@@ -324,10 +358,14 @@ class CerberusSingleTrain:
                 score_list.update(np.mean(score), input.shape[0])
 
         self.writer.add_scalar(
-            f"val_epoch_{self.task_root_list[0]}_loss_avg", loss_list.avg, global_step=epoch
+            f"val_epoch_{self.task_root_list[0]}_loss_avg",
+            loss_list.avg,
+            global_step=epoch,
         )
         self.writer.add_scalar(
-            f"val_epoch_{self.task_root_list[0]}_score_avg", score_list.avg, global_step=epoch
+            f"val_epoch_{self.task_root_list[0]}_score_avg",
+            score_list.avg,
+            global_step=epoch,
         )
         for i, it in enumerate(self.task_list[0]):
             # self.writer.add_scalar(
@@ -341,10 +379,7 @@ class CerberusSingleTrain:
                 global_step=epoch,
             )
 
-        score = score_list.avg
-        self.writer.add_scalar("val_score_avg", score, global_step=epoch)
-
-        return score
+        return score_list.avg
 
     @torch.no_grad()
     def test(self, save_dir, save_vis, have_gt):
@@ -366,25 +401,17 @@ class CerberusSingleTrain:
             if save_vis:
                 assert ".png" in name or ".jpg" in name or ".bmp" in name
                 for idx in range(len(output)):
-                    file_name = (
-                        f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}.png"
-                    )
+                    file_name = f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}.png"
                     pred = output[idx].argmax(dim=1)
                     # save_image(pred, file_name, save_dir)
-                    save_colorful_image(
-                        pred, file_name, f"{save_dir}_color", PALETTE
-                    )
+                    save_colorful_image(pred, file_name, f"{save_dir}_color", PALETTE)
 
             if have_gt:
                 for idx in range(len(target)):
-                    file_name = (
-                        f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}_gt.png"
-                    )
+                    file_name = f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}_gt.png"
                     pred = target[idx].argmax(dim=0)
                     # save_image(pred, file_name, save_dir)
-                    save_colorful_image(
-                        pred, file_name, f"{save_dir}_color", PALETTE
-                    )
+                    save_colorful_image(pred, file_name, f"{save_dir}_color", PALETTE)
 
                 score = []
                 for i in range(len(output)):

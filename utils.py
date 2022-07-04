@@ -193,10 +193,9 @@ class MinNormSolver:
 
 @torch.no_grad()
 def update_label(data, file_path):
-    data = data.cpu().numpy()
-    for i in range(data.shape[0]):
-        with open(file_path[i], "wb") as fb:
-            pickle.dump(data[i], fb)
+    for i in range(len(data)):
+        with open(file_path, "wb") as fb:
+            pickle.dump(data, fb)
 
 
 @torch.no_grad()
