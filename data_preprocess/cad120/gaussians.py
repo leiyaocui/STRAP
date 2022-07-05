@@ -18,7 +18,7 @@ def get_llkh(allrc, btemp, crop_size):
 
 def gaussians(keypoints, file_path, save_path):
     crop_size = 321
-    gaussian_size = 10
+    gaussian_size = 20
 
     file_name = os.path.basename(file_path)
     image_id = int(file_name[1:5])

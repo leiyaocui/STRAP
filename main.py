@@ -233,7 +233,7 @@ class CerberusSingleTrain:
         self.model.train()
 
         loss_list = AverageMeter()
-        loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
+        # loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
         score_list = AverageMeter()
 
         for input, target in tqdm(
@@ -256,10 +256,10 @@ class CerberusSingleTrain:
             loss = []
             for idx in range(len(output)):
                 loss_single = self.criterion(output[idx], target[idx])
-                loss.append(self.criterion(output[idx], target[idx]))
-                loss_per_task_list[idx].update(
-                    loss_single.item(), input.shape[0]
-                )
+                loss.append(loss_single)
+                # loss_per_task_list[idx].update(
+                #     loss_single.item(), input.shape[0]
+                # )
             loss = sum(loss)
             loss_list.update(loss.item(), input.shape[0])
 
@@ -273,17 +273,17 @@ class CerberusSingleTrain:
         self.writer.add_scalar(
             f"train_epoch_{self.task_root_list[0]}_score_avg", score_list.avg, global_step=epoch
         )
-        for i, it in enumerate(self.task_list[0]):
-            self.writer.add_scalar(
-                f"train_epoch_task_{it}_loss_avg",
-                loss_per_task_list[i].avg,
-                global_step=epoch,
-            )
+        # for i, it in enumerate(self.task_list[0]):
+        #     self.writer.add_scalar(
+        #         f"train_epoch_task_{it}_loss_avg",
+        #         loss_per_task_list[i].avg,
+        #         global_step=epoch,
+        #     )
 
         with torch.no_grad():
             for input, target, file_path in tqdm(
                 self.update_train_loader,
-                desc=f"[UpdateTrain] Epoch {epoch+1:04d}",
+                desc=f"[Update] Epoch {epoch+1:04d}",
                 ncols=80,
             ):
                 input = input.cuda(non_blocking=True)
