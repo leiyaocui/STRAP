@@ -2,6 +2,7 @@ import os
 import numpy as np
 import yaml
 import shutil
+import pickle
 from tqdm import tqdm
 from datetime import datetime
 import torch
@@ -16,7 +17,6 @@ from utils import (
     MinNormSolver,
     AverageMeter,
     AFFORDANCE_PALETTE,
-    update_label,
     save_colorful_image,
 )
 
@@ -45,7 +45,10 @@ class CerberusSingleTrain:
             self.keypoint_dict = {}
             for i in range(keypoint_list.shape[0]):
                 key = f"1{int(keypoint_list[i, 0]):04d}_{int(keypoint_list[i, 1])}_{int(keypoint_list[i, 2])}"
-                self.keypoint_dict[key] = [keypoint_list[i, 4], keypoint_list[i, 3]]
+                self.keypoint_dict[key] = [
+                    int(keypoint_list[i, 4]) - 1,
+                    int(keypoint_list[i, 3]) - 1,
+                ]
 
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -284,13 +287,16 @@ class CerberusSingleTrain:
                 ncols=80,
             ):
                 input = input.cuda(non_blocking=True)
+                for i in range(len(target)):
+                    target[i] = target[i].cuda(non_blocking=True)
+
                 file_path = file_path[0]
                 id = os.path.basename(file_path).split(".")[0]
 
                 output = self.model(input)
 
                 for i in range(len(output)):
-                    output[i] = output[i].argmax(dim=1).cpu()
+                    output[i] = output[i].argmax(dim=1)
 
                 for i, it in enumerate(output):
                     key = f"{id}_{i+1}"
@@ -298,27 +304,17 @@ class CerberusSingleTrain:
                         continue
 
                     keypoint = self.keypoint_dict[f"{id}_{i+1}"]
-                    keypoint = np.asarray(
-                        [
-                            [int(keypoint[0]), int(keypoint[0]) + 1],
-                            [int(keypoint[1]), int(keypoint[1]) + 1],
-                        ]
-                    )
 
                     # only support batch_size = 1.
-                    if (
-                        it[0, keypoint[0, 0], keypoint[1, 0]] == 1
-                        and it[0, keypoint[0, 0], keypoint[1, 1]] == 1
-                        and it[0, keypoint[0, 1], keypoint[1, 0]] == 1
-                        and it[0, keypoint[0, 1], keypoint[1, 1]] == 1
-                    ):
-                        output[i] = np.sign(target[i] + it).squeeze(axis=0)
+                    if it[0, keypoint[0], keypoint[1]] == 1:
+                        output[i] = torch.sign(target[i] + it)
                     else:
-                        output[i] = np.sign(target[i]).squeeze(axis=0)
+                        output[i] = torch.sign(target[i])
 
-                data = np.stack(output, axis=0).astype(np.uint8)
-
-                update_label(data, file_path)
+                data = torch.stack(output, dim=0).squeeze(dim=1).int().cpu().numpy()
+                for i in range(len(data)):
+                    with open(file_path, "wb") as fb:
+                        pickle.dump(data, fb)
 
     @torch.no_grad()
     def validate(self, epoch):

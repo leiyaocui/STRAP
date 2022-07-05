@@ -192,13 +192,6 @@ class MinNormSolver:
 
 
 @torch.no_grad()
-def update_label(data, file_path):
-    for i in range(len(data)):
-        with open(file_path, "wb") as fb:
-            pickle.dump(data, fb)
-
-
-@torch.no_grad()
 def save_image(data, file_name, save_dir):
     save_path = os.path.join(save_dir, file_name)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)

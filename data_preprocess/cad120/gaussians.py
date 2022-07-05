@@ -113,8 +113,8 @@ if __name__ == "__main__":
     source_path = "/home/DISCOVER_summer2022/cuily/dataset/CAD120"
     output_path = os.path.join("/home/DISCOVER_summer2022/cuily/dataset/cad120", split_mode)
     
-    # if os.path.exists(output_path):
-    #     shutil.rmtree(output_path)
+    if os.path.exists(output_path):
+        shutil.rmtree(output_path)
 
     train_set(source_path, output_path, split_mode)
     val_set(source_path, output_path, split_mode)
