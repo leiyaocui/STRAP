@@ -20,7 +20,6 @@ from utils import (
     save_colorful_image,
 )
 
-
 class CerberusSingleTrain:
     def __init__(self, yaml_path):
         config = yaml.safe_load(open(yaml_path, "r"))
@@ -39,16 +38,6 @@ class CerberusSingleTrain:
 
         if self.mode == "train":
             self.epochs = config["epochs"]
-
-            keypoint_list = np.loadtxt(config["keypoint_file"], delimiter=",")
-
-            self.keypoint_dict = {}
-            for i in range(keypoint_list.shape[0]):
-                key = f"1{int(keypoint_list[i, 0]):04d}_{int(keypoint_list[i, 1])}_{int(keypoint_list[i, 2])}"
-                self.keypoint_dict[key] = [
-                    int(keypoint_list[i, 4]) - 1,
-                    int(keypoint_list[i, 3]) - 1,
-                ]
 
             self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -72,6 +61,7 @@ class CerberusSingleTrain:
                     transforms.Normalize(
                         mean=config["data_mean"], std=config["data_std"]
                     ),
+                    transforms.MaskLabelMultiHead(filled_value=255),
                 ]
             )
 
@@ -211,18 +201,23 @@ class CerberusSingleTrain:
         if self.mode == "train":
             for epoch in range(self.start_epoch, self.epochs):
                 self.train(epoch)
-                score = self.validate(epoch)
+
                 self.scheduler.step()
 
-                is_best = score > self.best_score
-                self.best_score = max(score, self.best_score)
-                state = {
-                    "epoch": epoch + 1,
-                    "state_dict": self.model.state_dict(),
-                    "best_score": self.best_score,
-                }
-                save_dir = os.path.join(self.save_dir, "model")
-                self.save_checkpoint(state, is_best, save_dir)
+                if (epoch + 1) % 2 == 0:
+                    score = self.validate(epoch)                 
+                    
+                    is_best = score > self.best_score
+                    self.best_score = max(score, self.best_score)
+                    state = {
+                        "epoch": epoch + 1,
+                        "state_dict": self.model.state_dict(),
+                        "best_score": self.best_score,
+                    }
+                    save_dir = os.path.join(self.save_dir, "model")
+                    self.save_checkpoint(state, is_best, save_dir)
+
+                    self.update_trainset()
         elif self.mode == "test":
             save_dir = os.path.join(self.save_dir, "test_pred_img")
             self.test(save_dir, save_vis=self.save_vis, have_gt=self.have_gt)
@@ -280,41 +275,29 @@ class CerberusSingleTrain:
         #         global_step=epoch,
         #     )
 
-        with torch.no_grad():
-            for input, target, file_path in tqdm(
-                self.update_train_loader,
-                desc=f"[Update] Epoch {epoch+1:04d}",
-                ncols=80,
-            ):
-                input = input.cuda(non_blocking=True)
-                for i in range(len(target)):
-                    target[i] = target[i].cuda(non_blocking=True)
 
-                file_path = file_path[0]
-                id = os.path.basename(file_path).split(".")[0]
+    @torch.no_grad()
+    def update_trainset(self):
+        for input, target, file_path in tqdm(
+            self.update_train_loader,
+            desc=f"[Update TrainSet]",
+            ncols=80,
+        ):
+            input = input.cuda(non_blocking=True)
+            for i in range(len(target)):
+                target[i] = target[i].cuda(non_blocking=True)
 
-                output = self.model(input)
+            file_path = file_path[0]
 
-                for i in range(len(output)):
-                    output[i] = output[i].argmax(dim=1)
+            output = self.model(input)
 
-                for i, it in enumerate(output):
-                    key = f"{id}_{i+1}"
-                    if key not in self.keypoint_dict.keys():
-                        continue
+            for i in range(len(output)):
+                output[i] = output[i].argmax(dim=1)
 
-                    keypoint = self.keypoint_dict[f"{id}_{i+1}"]
-
-                    # only support batch_size = 1.
-                    if it[0, keypoint[0], keypoint[1]] == 1:
-                        output[i] = torch.sign(target[i] + it)
-                    else:
-                        output[i] = torch.sign(target[i])
-
-                data = torch.stack(output, dim=0).squeeze(dim=1).int().cpu().numpy()
-                for i in range(len(data)):
-                    with open(file_path, "wb") as fb:
-                        pickle.dump(data, fb)
+            data = torch.stack(output, dim=0).squeeze(dim=1).int().cpu().numpy()
+            for i in range(len(data)):
+                with open(file_path, "wb") as fb:
+                    pickle.dump(data, fb)
 
     @torch.no_grad()
     def validate(self, epoch):
@@ -399,14 +382,12 @@ class CerberusSingleTrain:
                 for idx in range(len(output)):
                     file_name = f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}.png"
                     pred = output[idx].argmax(dim=1)
-                    # save_image(pred, file_name, save_dir)
                     save_colorful_image(pred, file_name, f"{save_dir}_color", PALETTE)
 
             if have_gt:
                 for idx in range(len(target)):
                     file_name = f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}_gt.png"
                     pred = target[idx].argmax(dim=0)
-                    # save_image(pred, file_name, save_dir)
                     save_colorful_image(pred, file_name, f"{save_dir}_color", PALETTE)
 
                 score = []
@@ -440,5 +421,6 @@ if __name__ == "__main__":
 
     cerberus = CerberusSingleTrain("train_weak_cad120.yaml")
     cerberus.exec()
-    # cerberus = CerberusSingleTrain("test_weak_cad120.yaml")
+
+    # cerberus = CerberusSingleTrain("train_cad120.yaml")
     # cerberus.exec()

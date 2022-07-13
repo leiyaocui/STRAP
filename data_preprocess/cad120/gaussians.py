@@ -18,7 +18,7 @@ def get_llkh(allrc, btemp, crop_size):
 
 def gaussians(keypoints, file_path, save_path):
     crop_size = 321
-    gaussian_size = 20
+    gaussian_size = 10
 
     file_name = os.path.basename(file_path)
     image_id = int(file_name[1:5])
@@ -43,9 +43,8 @@ def gaussians(keypoints, file_path, save_path):
                 llkh = get_llkh(allrc, btemp, crop_size)
                 llkh = llkh > (np.max(np.max(llkh)) / np.e)
                 data[i, :, :] = np.maximum(data[i, :, :], llkh.astype(np.uint8))
-
+    
     data = data.astype(np.uint8)
-
     with open(save_path, "wb") as f: 
         pickle.dump(data, f)
 
@@ -118,3 +117,4 @@ if __name__ == "__main__":
 
     train_set(source_path, output_path, split_mode)
     val_set(source_path, output_path, split_mode)
+

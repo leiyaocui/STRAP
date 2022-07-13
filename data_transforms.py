@@ -182,6 +182,19 @@ class ToTensorMultiHead:
         return image, label
 
 
+class MaskLabelMultiHead:
+    def __init__(self, filled_value=255):
+        self.filled_value = filled_value
+
+    def __call__(self, image, label):
+        assert label is not None
+        mask = (sum(label) < 1).bool()
+        for i in range(len(label)):
+            label[i].masked_fill_(mask, self.filled_value)
+        
+        return image, label
+
+
 class Compose:
     def __init__(self, transforms):
         self.transforms = transforms
