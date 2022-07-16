@@ -1,26 +1,25 @@
 import os
+from tabnanny import check
 import numpy as np
 import yaml
 import shutil
-import pickle
 from tqdm import tqdm
 from datetime import datetime
 import torch
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from datasets import EMDataset
-import data_transforms as transforms
-from models import CerberusSegmentationModelSingle
+from datasets import make_dataloader
+import transforms as TF
+from models import CerberusSegmentationModel
+from losses import GatedCRFLoss
 from utils import (
     IoU,
-    MinNormSolver,
     AverageMeter,
-    AFFORDANCE_PALETTE,
     save_colorful_image,
 )
 
-class CerberusSingleTrain:
+
+class CerberusMain:
     def __init__(self, yaml_path):
         config = yaml.safe_load(open(yaml_path, "r"))
 
@@ -30,49 +29,58 @@ class CerberusSingleTrain:
         )
         os.makedirs(self.save_dir, exist_ok=True)
 
+        self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
+
         self.task_root_list = list(config["task"].keys())
         assert len(self.task_root_list) == 1
         self.task_list = [v["category"] for v in config["task"].values()]
 
-        self.model = CerberusSegmentationModelSingle(config["task"])
+        self.model = CerberusSegmentationModel(config["task"])
 
         if self.mode == "train":
             self.epochs = config["epochs"]
-
-            self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
+            self.validate_freq = config["validate_freq"]
 
             self.model = self.model.cuda()
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=255).cuda()
 
-            train_tf = []
+            self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255).cuda()
+            self.loss_crf = GatedCRFLoss(
+                kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
+            ).cuda()
 
-            if config["random_rotate"] > 0:
-                train_tf.append(
-                    transforms.RandomRotateMultiHead(config["random_rotate"])
-                )
-            if config["random_scale"] > 0:
-                train_tf.append(transforms.RandomScaleMultiHead(config["random_scale"]))
+            random_crop_size = config["random_crop_size"]
+            random_crop_size = (
+                random_crop_size
+                if isinstance(random_crop_size, tuple)
+                else (random_crop_size, random_crop_size)
+            )
 
-            train_tf.extend(
+            train_tf = TF.Compose(
                 [
-                    transforms.RandomCropMultiHead(config["random_crop"]),
-                    transforms.RandomHorizontalFlipMultiHead(),
-                    transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
+                    TF.RandomScaledTiltedWarpedPIL(
+                        random_crop_size=random_crop_size,
+                        random_scale_min=config["random_scale_min"],
+                        random_scale_max=config["random_scale_max"],
+                        random_tilt_max_deg=config["random_tilt_max_deg"],
+                        random_wiggle_max_ratio=config["random_wiggle_max_ratio"],
+                        random_horizon_reflect=config["random_horizon_reflect"],
+                        ignore_index=255,
+                        center_offset_instead_of_random=False,
+                    )
+                    if random_crop_size[0] > 0 and random_crop_size[1] > 0
+                    else TF.Identity(),
+                    TF.PointCoordinatesToPIL(ignore_index=255, stroke_width=10),
+                    TF.PILToTensor(),
+                    TF.ImageNormalizeTensor(
+                        mean=config["dataset_mean"], std=config["dataset_std"]
                     ),
-                    transforms.MaskLabelMultiHead(filled_value=255),
                 ]
             )
 
-            train_tf = transforms.Compose(train_tf)
-
-            dataset_train = EMDataset(
-                config["data_dir"], f"train_{self.task_root_list[0]}", train_tf
-            )
-
-            self.train_loader = DataLoader(
-                dataset_train,
+            self.train_loader = make_dataloader(
+                config["data_dir"],
+                f"train_{self.task_root_list[0]}",
+                train_tf,
                 batch_size=config["batch_size"],
                 shuffle=True,
                 num_workers=config["workers"],
@@ -80,51 +88,23 @@ class CerberusSingleTrain:
                 drop_last=True,
             )
 
-            update_train_tf = transforms.Compose(
+            val_tf = TF.Compose(
                 [
-                    transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
+                    TF.PILToTensor(),
+                    TF.ImageNormalizeTensor(
+                        mean=config["dataset_mean"], std=config["dataset_std"]
                     ),
                 ]
             )
 
-            dataset_update_train = EMDataset(
+            self.val_loader = make_dataloader(
                 config["data_dir"],
-                f"train_{self.task_root_list[0]}",
-                update_train_tf,
-                out_name=True,
-            )
-
-            self.update_train_loader = DataLoader(
-                dataset_update_train,
-                batch_size=1,
-                shuffle=False,
-                num_workers=4,
-                pin_memory=True,
-                drop_last=False,
-            )
-
-            val_tf = transforms.Compose(
-                [
-                    transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
-                    ),
-                ]
-            )
-
-            dataset_val = EMDataset(
-                config["data_dir"], f"val_{self.task_root_list[0]}", val_tf
-            )
-
-            self.val_loader = DataLoader(
-                dataset_val,
+                f"val_{self.task_root_list[0]}",
+                val_tf,
                 batch_size=1,
                 shuffle=False,
                 num_workers=config["workers"],
                 pin_memory=True,
-                drop_last=True,
             )
 
             self.optimizer = torch.optim.SGD(
@@ -150,29 +130,26 @@ class CerberusSingleTrain:
             )
 
             torch.backends.cudnn.benchmark = True
-
         elif self.mode == "test":
             self.save_vis = config["save_vis"]
-            self.have_gt = config["have_gt"]
 
-            test_tf = transforms.Compose(
+            val_tf = TF.Compose(
                 [
-                    transforms.ToTensorMultiHead(),
-                    transforms.Normalize(
-                        mean=config["data_mean"], std=config["data_std"]
+                    TF.PILToTensor(),
+                    TF.ImageNormalizeTensor(
+                        mean=config["dataset_mean"], std=config["dataset_std"]
                     ),
                 ]
             )
 
-            dataset_test = EMDataset(
-                config["data_dir"], "val_affordance", test_tf, out_name=True,
-            )
-
-            self.test_loader = DataLoader(
-                dataset_test,
+            self.val_loader = make_dataloader(
+                config["data_dir"],
+                f"val_{self.task_root_list[0]}",
+                val_tf,
                 batch_size=config["batch_size"],
                 shuffle=False,
                 num_workers=config["workers"],
+                pin_memory=True,
             )
         else:
             raise ValueError(f"Unknown exec mode {self.mode}")
@@ -181,7 +158,9 @@ class CerberusSingleTrain:
         self.start_epoch = 0
 
         if os.path.isfile(config["resume"]):
-            checkpoint = torch.load(config["resume"])
+            checkpoint = torch.load(
+                config["resume"], map_location=lambda storage, loc: storage
+            )
             self.start_epoch = checkpoint["epoch"]
             self.best_score = checkpoint["best_score"]
             self.model.load_state_dict(
@@ -195,34 +174,24 @@ class CerberusSingleTrain:
                 f"Epoch: {checkpoint['epoch']} Score: {checkpoint['best_score']}"
             )
         else:
-            print(f"No checkpoint found")
+            print(f"No checkpoint is found")
 
     def exec(self):
         if self.mode == "train":
-            for epoch in range(self.start_epoch, self.epochs):
+            for epoch in range(self.start_epoch + 1, self.epochs + 1):
                 self.train(epoch)
 
                 self.scheduler.step()
 
-                if (epoch + 1) % 2 == 0:
-                    score = self.validate(epoch)                 
-                    
+                if epoch % self.validate_freq == 0:
+                    score = self.validate(epoch)
+
                     is_best = score > self.best_score
                     self.best_score = max(score, self.best_score)
-                    state = {
-                        "epoch": epoch + 1,
-                        "state_dict": self.model.state_dict(),
-                        "best_score": self.best_score,
-                    }
-                    save_dir = os.path.join(self.save_dir, "model")
-                    self.save_checkpoint(state, is_best, save_dir)
 
-                    self.update_trainset()
+                    self.save_checkpoint(epoch, is_best)
         elif self.mode == "test":
-            save_dir = os.path.join(self.save_dir, "test_pred_img")
-            self.test(save_dir, save_vis=self.save_vis, have_gt=self.have_gt)
-        else:
-            raise ValueError(f"Unknown exec mode {self.mode}")
+            self.validate(epoch, save_vis=self.save_vis)
 
     def train(self, epoch):
         self.model.train()
@@ -231,12 +200,17 @@ class CerberusSingleTrain:
         # loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
         score_list = AverageMeter()
 
-        for input, target in tqdm(
-            self.train_loader, desc=f"[Train] Epoch {epoch+1:04d}", ncols=80
+        for data in tqdm(
+            self.train_loader, desc=f"[Train] Epoch {epoch:03d}", ncols=80
         ):
-            input = input.cuda(non_blocking=True)
+            input = data["image"].cuda(non_blocking=True)
+
+            target = data["weak_label"]
             for i in range(len(target)):
                 target[i] = target[i].cuda(non_blocking=True)
+
+            mask = data["validity"].cuda(non_blocking=True)
+
             output = self.model(input)
 
             score = []
@@ -250,12 +224,24 @@ class CerberusSingleTrain:
 
             loss = []
             for idx in range(len(output)):
-                loss_single = self.criterion(output[idx], target[idx])
+                loss_ce_single = self.loss_ce(output[idx], target[idx])
+                loss_crf_single = self.loss_crf(
+                    input, output[i].softmax(dim=1), mask_src=mask,
+                )
+
+                if torch.isnan(loss_ce_single):
+                    loss_single = 0.1 * loss_crf_single
+                else:
+                    loss_single = loss_ce_single + 0.1 * loss_crf_single
+
                 loss.append(loss_single)
+
                 # loss_per_task_list[idx].update(
                 #     loss_single.item(), input.shape[0]
                 # )
-            loss = sum(loss)
+
+            loss = sum(loss) / len(output)
+
             loss_list.update(loss.item(), input.shape[0])
 
             self.optimizer.zero_grad()
@@ -263,68 +249,37 @@ class CerberusSingleTrain:
             self.optimizer.step()
 
         self.writer.add_scalar(
-            f"train_epoch_{self.task_root_list[0]}_loss_avg", loss_list.avg, global_step=epoch
+            f"train_{self.task_root_list[0]}_loss_avg",
+            loss_list.avg,
+            global_step=epoch,
         )
         self.writer.add_scalar(
-            f"train_epoch_{self.task_root_list[0]}_score_avg", score_list.avg, global_step=epoch
+            f"train_{self.task_root_list[0]}_score_avg",
+            score_list.avg,
+            global_step=epoch,
         )
         # for i, it in enumerate(self.task_list[0]):
         #     self.writer.add_scalar(
-        #         f"train_epoch_task_{it}_loss_avg",
+        #         f"train_class_{it}_loss_avg",
         #         loss_per_task_list[i].avg,
         #         global_step=epoch,
         #     )
 
-
     @torch.no_grad()
-    def update_trainset(self):
-        for input, target, file_path in tqdm(
-            self.update_train_loader,
-            desc=f"[Update TrainSet]",
-            ncols=80,
-        ):
-            input = input.cuda(non_blocking=True)
-            for i in range(len(target)):
-                target[i] = target[i].cuda(non_blocking=True)
-
-            file_path = file_path[0]
-
-            output = self.model(input)
-
-            for i in range(len(output)):
-                output[i] = output[i].argmax(dim=1)
-
-            data = torch.stack(output, dim=0).squeeze(dim=1).int().cpu().numpy()
-            for i in range(len(data)):
-                with open(file_path, "wb") as fb:
-                    pickle.dump(data, fb)
-
-    @torch.no_grad()
-    def validate(self, epoch):
+    def validate(self, epoch, save_vis=False):
         self.model.eval()
 
-        loss_list = AverageMeter()
-        # loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
         score_list = AverageMeter()
         score_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
 
-        for input, target in tqdm(
-            self.val_loader, desc=f"[Val] Epoch {epoch+1:04d}", ncols=80
-        ):
-            input = input.cuda(non_blocking=True)
+        for data in tqdm(self.val_loader, desc=f"[Val] Epoch {epoch:03d}", ncols=80):
+            input = data["image"].cuda(non_blocking=True)
+
+            target = data["dense_label"]
             for i in range(len(target)):
                 target[i] = target[i].cuda(non_blocking=True)
-            output = self.model(input)
 
-            loss = []
-            for idx in range(len(output)):
-                loss_single = self.criterion(output[idx], target[idx])
-                loss.append(loss_single)
-                # loss_per_task_list[idx].update(
-                #     loss_single.item(), input.shape[0]
-                # )
-            loss = sum(loss)
-            loss_list.update(loss.item(), input.shape[0])
+            output = self.model(input)
 
             score = []
             for i in range(len(output)):
@@ -336,91 +291,54 @@ class CerberusSingleTrain:
             if len(score) > 0:
                 score_list.update(np.mean(score), input.shape[0])
 
+            if save_vis:
+                palette = np.asarray([[0, 0, 0], [255, 255, 255]], dtype=np.uint8)
+                save_dir = os.path.join(self.save_dir, "test_result")
+
+                for idx in range(len(output)):
+                    pred = output[idx].argmax(dim=1)
+                    file_name = f"{data['file_name']}_{self.task_list[0][idx]}_pred.png"
+                    save_colorful_image(pred, file_name, save_dir, palette)
+
         self.writer.add_scalar(
-            f"val_epoch_{self.task_root_list[0]}_loss_avg",
-            loss_list.avg,
-            global_step=epoch,
-        )
-        self.writer.add_scalar(
-            f"val_epoch_{self.task_root_list[0]}_score_avg",
-            score_list.avg,
-            global_step=epoch,
+            f"val_{self.task_root_list[0]}_miou_avg", score_list.avg, global_step=epoch,
         )
         for i, it in enumerate(self.task_list[0]):
-            # self.writer.add_scalar(
-            #     f"val_epoch_task_{it}_loss_avg",
-            #     loss_per_task_list[i].avg,
-            #     global_step=epoch,
-            # )
             self.writer.add_scalar(
-                f"val_epoch_task_{it}_score_avg",
+                f"val_class_{it}_iou_avg",
                 score_per_task_list[i].avg,
                 global_step=epoch,
             )
 
         return score_list.avg
 
-    @torch.no_grad()
-    def test(self, save_dir, save_vis, have_gt):
-        self.model.eval()
-
-        for data_i, data in enumerate(self.test_loader):
-            PALETTE = AFFORDANCE_PALETTE
-
-            name = data[-1][0]
-            print(f"File name: {name}")
-            name = os.path.basename(name)
-
-            input = data[0]
-            if have_gt:
-                target = data[1]
-
-            output = self.model(input)
-
-            if save_vis:
-                assert ".png" in name or ".jpg" in name or ".bmp" in name
-                for idx in range(len(output)):
-                    file_name = f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}.png"
-                    pred = output[idx].argmax(dim=1)
-                    save_colorful_image(pred, file_name, f"{save_dir}_color", PALETTE)
-
-            if have_gt:
-                for idx in range(len(target)):
-                    file_name = f"{data_i}/{self.task_list[0][idx]}/{name[:-4]}_gt.png"
-                    pred = target[idx].argmax(dim=0)
-                    save_colorful_image(pred, file_name, f"{save_dir}_color", PALETTE)
-
-                score = []
-                for i in range(len(output)):
-                    iou = IoU(output[i], target[i])[1]
-                    if not np.isnan(iou):
-                        score.append(iou)
-                score = np.mean(score) / input.shape[0]
-
-                print(f"Task {self.task_root_list[0]} score: {score:.2f}")
-
-    def save_checkpoint(self, state, is_best, save_dir, backup_freq=10):
+    def save_checkpoint(self, epoch, is_best, backup_freq=10):
+        save_dir = os.path.join(self.save_dir, "model")
         os.makedirs(save_dir, exist_ok=True)
+
+        state = {
+            "epoch": epoch,
+            "state_dict": self.model.state_dict(),
+            "best_score": self.best_score,
+        }
 
         checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
         torch.save(state, checkpoint_path)
+
+        if epoch % backup_freq == 0:
+            history_path = os.path.join(save_dir, f"checkpoint_{epoch:03d}.pth")
+            shutil.copyfile(checkpoint_path, history_path)
 
         if is_best:
             best_path = os.path.join(save_dir, "model_best.pth")
             shutil.copyfile(checkpoint_path, best_path)
 
-        if state["epoch"] % backup_freq == 0:
-            history_path = os.path.join(
-                save_dir, f"checkpoint_{state['epoch']:04d}.pth"
-            )
-            shutil.copyfile(checkpoint_path, history_path)
-
 
 if __name__ == "__main__":
     # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    cerberus = CerberusSingleTrain("train_weak_cad120.yaml")
+    cerberus = CerberusMain("train_weak_cad120.yaml")
     cerberus.exec()
 
-    # cerberus = CerberusSingleTrain("train_cad120.yaml")
+    # cerberus = CerberusMain("train_cad120.yaml")
     # cerberus.exec()

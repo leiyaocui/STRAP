@@ -5,22 +5,32 @@ data_dir: "../dataset/cad120/object"
 task:
   affordance:
     num_classes: 2
-    category: ["Openable", "Cuttable", "Pourable", "Containable", "Supportable", "Holdable"]
+    category:
+      [
+        "Openable",
+        "Cuttable",
+        "Pourable",
+        "Containable",
+        "Supportable",
+        "Holdable",
+      ]
 
-random_crop: 321
-random_rotate: 10
-random_scale: 2
+random_crop_size: 321
+random_tilt_max_deg: 10
+random_scale_max: 2
+random_scale_min: 0.5
+random_wiggle_max_ratio: 0
+random_horizon_reflect: True
 
-data_mean: [0.519519957682635, 0.416942057728106, 0.437531293813372]
-data_std: [0.264511490972910, 0.275430758070024, 0.283129684446284]
-
-keypoint_file: "keypoints.txt"
+dataset_mean: [132.477589209075859, 106.320224720657322, 111.570479922402896]
+dataset_std: [67.450430198090885, 70.234843307855243, 72.198069533801629]
 
 epochs: 100
 batch_size: 4
 workers: 10
+validate_freq: 5
 
-lr: 0.001
+lr: 0.007
 lr_mode: "poly"
 momentum: 0.9
 weight_decay: 0.0001

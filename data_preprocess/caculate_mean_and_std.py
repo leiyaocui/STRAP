@@ -12,7 +12,7 @@ if __name__ == '__main__':
     c_sum = np.zeros(3)
     c_num = 0
     for path in tqdm(image_path_list, ncols=80):
-        img = np.asarray(Image.open(path).convert('RGB')) / 255
+        img = np.asarray(Image.open(path).convert('RGB'))
         h, w, c = img.shape
         c_sum += img.sum(axis=(0, 1))
         c_num += h * w
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     c_sum = np.zeros(3)
     c_num = 0
     for path in tqdm(image_path_list, ncols=80):
-        img = np.asarray(Image.open(path).convert('RGB')) / 255
+        img = np.asarray(Image.open(path).convert('RGB'))
         h, w, c = img.shape
         c_sum += np.sum((img - c_mean) ** 2, axis=(0, 1))
         c_num += h * w
