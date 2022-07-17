@@ -1,4 +1,4 @@
-mode: "test"
+mode: "train"
 
 data_dir: "../dataset/cad120/object"
 
@@ -15,13 +15,27 @@ task:
         "Holdable",
       ]
 
+label_level: "weak"
+
+random_crop_size: 321
+random_tilt_max_deg: 10
+random_scale_max: 2
+random_scale_min: 0.5
+random_wiggle_max_ratio: 0
+random_horizon_reflect: True
+
 dataset_mean: [132.477589209075859, 106.320224720657322, 111.570479922402896]
 dataset_std: [67.450430198090885, 70.234843307855243, 72.198069533801629]
 
-batch_size: 1
+epochs: 100
+batch_size: 4
 workers: 10
-validate_freq: 1
-save_vis: true
+validate_freq: 3
+
+lr: 0.001
+lr_mode: "poly"
+momentum: 0.9
+weight_decay: 0.0001
 
 save_dir: "output"
 

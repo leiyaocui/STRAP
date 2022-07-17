@@ -1,5 +1,4 @@
 import os
-from tabnanny import check
 import numpy as np
 import yaml
 import shutil
@@ -38,6 +37,8 @@ class CerberusMain:
         self.model = CerberusSegmentationModel(config["task"])
 
         if self.mode == "train":
+            self.label_level = config["label_level"]
+            assert self.label_level in ["weak", "dense"]
             self.epochs = config["epochs"]
             self.validate_freq = config["validate_freq"]
 
@@ -69,7 +70,9 @@ class CerberusMain:
                     )
                     if random_crop_size[0] > 0 and random_crop_size[1] > 0
                     else TF.Identity(),
-                    TF.PointCoordinatesToPIL(ignore_index=255, stroke_width=10),
+                    TF.PointCoordinatesToPIL(ignore_index=255, stroke_width=20)
+                    if self.label_level == "weak"
+                    else TF.Identity(),
                     TF.PILToTensor(),
                     TF.ImageNormalizeTensor(
                         mean=config["dataset_mean"], std=config["dataset_std"]
@@ -146,7 +149,7 @@ class CerberusMain:
                 config["data_dir"],
                 f"val_{self.task_root_list[0]}",
                 val_tf,
-                batch_size=config["batch_size"],
+                batch_size=1,
                 shuffle=False,
                 num_workers=config["workers"],
                 pin_memory=True,
@@ -196,16 +199,16 @@ class CerberusMain:
     def train(self, epoch):
         self.model.train()
 
-        loss_list = AverageMeter()
-        # loss_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
-        score_list = AverageMeter()
+        loss_meter = AverageMeter()
+        # loss_per_class_meter = [AverageMeter() for _ in range(len(self.task_list[0]))]
+        score_meter = AverageMeter()
 
         for data in tqdm(
             self.train_loader, desc=f"[Train] Epoch {epoch:03d}", ncols=80
         ):
             input = data["image"].cuda(non_blocking=True)
 
-            target = data["weak_label"]
+            target = data[f"{self.label_level}_label"]
             for i in range(len(target)):
                 target[i] = target[i].cuda(non_blocking=True)
 
@@ -216,11 +219,11 @@ class CerberusMain:
             score = []
             for i in range(len(output)):
                 iou = IoU(output[i], target[i])[1]
-                if not np.isnan(iou):
-                    score.append(iou)
+                score.append(iou)
 
-            if len(score) > 0:
-                score_list.update(np.mean(score), input.shape[0])
+            score = np.nanmean(score)
+            if not np.isnan(score):
+                score_meter.update(score, input.shape[0])
 
             loss = []
             for idx in range(len(output)):
@@ -236,13 +239,13 @@ class CerberusMain:
 
                 loss.append(loss_single)
 
-                # loss_per_task_list[idx].update(
+                # loss_per_class_meter[idx].update(
                 #     loss_single.item(), input.shape[0]
                 # )
 
             loss = sum(loss) / len(output)
 
-            loss_list.update(loss.item(), input.shape[0])
+            loss_meter.update(loss.item(), input.shape[0])
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -250,18 +253,18 @@ class CerberusMain:
 
         self.writer.add_scalar(
             f"train_{self.task_root_list[0]}_loss_avg",
-            loss_list.avg,
+            loss_meter.avg,
             global_step=epoch,
         )
         self.writer.add_scalar(
             f"train_{self.task_root_list[0]}_score_avg",
-            score_list.avg,
+            score_meter.avg,
             global_step=epoch,
         )
         # for i, it in enumerate(self.task_list[0]):
         #     self.writer.add_scalar(
         #         f"train_class_{it}_loss_avg",
-        #         loss_per_task_list[i].avg,
+        #         loss_per_class_meter[i].avg,
         #         global_step=epoch,
         #     )
 
@@ -269,8 +272,8 @@ class CerberusMain:
     def validate(self, epoch, save_vis=False):
         self.model.eval()
 
-        score_list = AverageMeter()
-        score_per_task_list = [AverageMeter() for _ in range(len(self.task_list[0]))]
+        score_meter = AverageMeter()
+        score_per_class_meter = [AverageMeter() for _ in range(len(self.task_list[0]))]
 
         for data in tqdm(self.val_loader, desc=f"[Val] Epoch {epoch:03d}", ncols=80):
             input = data["image"].cuda(non_blocking=True)
@@ -284,12 +287,13 @@ class CerberusMain:
             score = []
             for i in range(len(output)):
                 iou = IoU(output[i], target[i])[1]
+                score.append(iou)
                 if not np.isnan(iou):
-                    score.append(iou)
-                    score_per_task_list[i].update(iou, input.shape[0])
+                    score_per_class_meter[i].update(iou, input.shape[0])
 
-            if len(score) > 0:
-                score_list.update(np.mean(score), input.shape[0])
+            score = np.nanmean(score)
+            if not np.isnan(score):
+                score_meter.update(score, input.shape[0])
 
             if save_vis:
                 palette = np.asarray([[0, 0, 0], [255, 255, 255]], dtype=np.uint8)
@@ -301,16 +305,18 @@ class CerberusMain:
                     save_colorful_image(pred, file_name, save_dir, palette)
 
         self.writer.add_scalar(
-            f"val_{self.task_root_list[0]}_miou_avg", score_list.avg, global_step=epoch,
+            f"val_{self.task_root_list[0]}_miou_avg",
+            score_meter.avg,
+            global_step=epoch,
         )
         for i, it in enumerate(self.task_list[0]):
             self.writer.add_scalar(
                 f"val_class_{it}_iou_avg",
-                score_per_task_list[i].avg,
+                score_per_class_meter[i].avg,
                 global_step=epoch,
             )
 
-        return score_list.avg
+        return score_meter.avg
 
     def save_checkpoint(self, epoch, is_best, backup_freq=10):
         save_dir = os.path.join(self.save_dir, "model")
@@ -337,8 +343,9 @@ class CerberusMain:
 if __name__ == "__main__":
     # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    cerberus = CerberusMain("train_weak_cad120.yaml")
+    np.seterr(divide="ignore")
+    cerberus = CerberusMain("train_cad120.yaml")
     cerberus.exec()
 
-    # cerberus = CerberusMain("train_cad120.yaml")
+    # cerberus = CerberusMain("test_cad120.yaml")
     # cerberus.exec()

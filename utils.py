@@ -1,6 +1,6 @@
 import os
 from PIL import Image
-import torch
+import numpy as np
 
 
 class AverageMeter:
@@ -22,34 +22,27 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
 
-@torch.no_grad()
-def fast_hist(pred, target, n):
-    mask = (target >= 0) & (target < n)
-    return torch.bincount(
-        n * target[mask].int() + pred[mask], minlength=n ** 2
-    ).reshape(n, n)
-
-
-@torch.no_grad()
-def per_class_iu(hist):
-    return torch.diag(hist) / (hist.sum(dim=1) + hist.sum(dim=0) - torch.diag(hist))
-
-
-@torch.no_grad()
 def IoU(output, target):
     num_classes = output.shape[1]
-    pred = output.argmax(dim=1)
-    hist = torch.zeros((num_classes, num_classes), device=output.device)
-    hist += fast_hist(pred.flatten(), target.flatten(), num_classes)
-    ious = per_class_iu(hist) * 100
-    return ious.cpu()
+
+    pred = output.argmax(dim=1).cpu().numpy().flatten()
+    target = target.cpu().numpy().flatten()
+    
+    mask = (target >= 0) & (target < num_classes)
+
+    hist = np.bincount(
+        num_classes * target[mask] + pred[mask], minlength=num_classes ** 2
+    ).reshape(num_classes, num_classes)
+
+    ious = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
+    
+    return ious * 100
 
 
-@torch.no_grad()
 def save_colorful_image(data, file_name, save_dir, palettes):
     save_path = os.path.join(save_dir, file_name)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    data = data.cpu().numpy().squeeze()
+    data = data.cpu().numpy().squeeze(0)
     img = Image.fromarray(palettes[data])
     img.save(save_path)
