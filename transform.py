@@ -1,6 +1,8 @@
 import numpy as np
 from PIL import Image, ImageDraw
 import torch
+import pickle
+import pydensecrf.densecrf as dcrf
 
 
 class Identity:
@@ -12,31 +14,31 @@ class RandomScaledTiltedWarpedPIL:
     def __init__(
         self,
         random_crop_size=(0, 0),
-        random_scale_min=0.5,
-        random_scale_max=2.0,
-        random_tilt_max_deg=0,
+        random_shrink_min=0.5,
+        random_shrink_max=2.0,
+        random_tilt_max_deg=10,
         random_wiggle_max_ratio=0,
-        random_horizon_reflect=False,
-        ignore_index=255,
+        random_horizon_reflect=True,
         center_offset_instead_of_random=False,
+        ignore_index=255,
     ):
-        assert random_scale_min > 0, "random_scale_min must be positive"
+        assert random_shrink_min > 0, "random_shrink_min must be positive"
         assert (
-            random_scale_max >= random_scale_min
-        ), "random_scale_max > random_scale_min"
+            random_shrink_max >= random_shrink_min
+        ), "random_shrink_max > random_shrink_min"
         assert random_tilt_max_deg >= 0, "tilt must be non negative"
         assert (
             0 <= random_wiggle_max_ratio < 0.5
         ), "random_wiggle_max_ratio must be [0, 0.5)"
 
-        self.dst_size = random_crop_size
-        self.random_scale_min = random_scale_min
-        self.random_scale_max = random_scale_max
+        self.dst_size = tuple(random_crop_size)
+        self.random_shrink_min = random_shrink_min
+        self.random_shrink_max = random_shrink_max
         self.random_tilt_max_deg = random_tilt_max_deg
         self.random_wiggle_max_ratio = random_wiggle_max_ratio
         self.random_horizon_reflect = random_horizon_reflect
-        self.ignore_index = ignore_index
         self.center_offset_instead_of_random = center_offset_instead_of_random
+        self.ignore_index = ignore_index
 
     def __call__(self, data):
         dst_corners = [
@@ -71,7 +73,7 @@ class RandomScaledTiltedWarpedPIL:
                     Image.BILINEAR,
                     fillcolor=None,
                 )
-            elif k == "dense_label":
+            elif k in ["dense_label", "weak_label"] and k in data:
                 label = data[k]
                 data[k] = [
                     label[i].transform(
@@ -83,9 +85,6 @@ class RandomScaledTiltedWarpedPIL:
                     )
                     for i in range(len(label))
                 ]
-            elif k == "weak_label":
-                if data[k] is not None:
-                    raise ValueError("data.weak_label is not none")
             elif k == "point_label":
                 new_label = []
                 for cls_id, joints in data[k]:
@@ -166,7 +165,7 @@ class RandomScaledTiltedWarpedPIL:
         max_wiggle_pix = (
             self.random_wiggle_max_ratio * min(self.dst_size[0], self.dst_size[1]) / 2
         )
-        scale = np.random.uniform(self.random_scale_min, self.random_scale_max)
+        scale = np.random.uniform(self.random_shrink_min, self.random_shrink_max)
         angle_deg = (
             np.random.uniform(-self.random_tilt_max_deg, self.random_tilt_max_deg)
             if 0 < self.random_tilt_max_deg <= 45
@@ -223,41 +222,6 @@ class RandomScaledTiltedWarpedPIL:
         return corners, scale
 
 
-class PointCoordinatesToPIL:
-    def __init__(self, ignore_index, stroke_width, with_scribble=False):
-        self.ignore_index = ignore_index
-        self.stroke_width = stroke_width
-        self.with_scribble = with_scribble
-
-    def __call__(self, data):
-        image_size = data["image"].size
-
-        weak_label = list()
-        for _, joints in data["point_label"]:
-            label = Image.new("L", image_size, color=self.ignore_index)
-            draw = ImageDraw.Draw(label)
-
-            if self.with_scribble and len(joints):
-                draw.line(
-                    np.array(joints).flatten(), 1, self.stroke_width, joint="curve"
-                )
-            for i in range(len(joints)):
-                draw.ellipse(
-                    (
-                        joints[i][0] - self.stroke_width / 2,
-                        joints[i][1] - self.stroke_width / 2,
-                        joints[i][0] + self.stroke_width / 2,
-                        joints[i][1] + self.stroke_width / 2,
-                    ),
-                    1,
-                )
-            weak_label.append(label)
-
-        data["weak_label"] = weak_label
-
-        return data
-
-
 class PILToTensor:
     def __call__(self, data):
         for k in data:
@@ -270,14 +234,13 @@ class PILToTensor:
                     .contiguous()
                     .float()
                 )
-            elif k in ["dense_label", "weak_label"]:
+            elif k in ["dense_label", "weak_label"] and k in data:
                 label = data[k]
-                if label is not None:
-                    data[k] = [
-                        torch.from_numpy(np.array(label[i])).long()
-                        for i in range(len(label))
-                    ]
-            elif k == "validity":
+                data[k] = [
+                    torch.from_numpy(np.array(label[i])).long()
+                    for i in range(len(label))
+                ]
+            elif k == "validity" and k in data:
                 data[k] = torch.from_numpy(np.array(data[k])).unsqueeze(0).float()
             else:
                 raise ValueError("Not support data's key: {k}")
@@ -285,8 +248,17 @@ class PILToTensor:
         return data
 
 
+class ImageToTensorWithNumpy:
+    def __call__(self, data):
+        data["image_numpy"] = np.array(data["image"], dtype=np.uint8)
+        data["image"] = (
+            torch.from_numpy(data["image_numpy"]).permute(2, 0, 1).contiguous().float()
+        )
+        return data
+
+
 class ImageNormalizeTensor:
-    def __init__(self, mean=(0.0, 0.0, 0.0), std=(255.0, 255.0, 255.0)):
+    def __init__(self, mean=[0.0, 0.0, 0.0], std=[255.0, 255.0, 255.0]):
         self.mean = torch.tensor(mean).view(3, 1, 1)
         self.std = torch.tensor(std).view(3, 1, 1)
 
@@ -306,3 +278,83 @@ class Compose:
             data = tf(data)
 
         return data
+
+
+def dense_crf(img, probs, mode):
+    n_labels = probs.shape[0]
+
+    d = dcrf.DenseCRF2D(img.shape[1], img.shape[0], n_labels)
+
+    if mode == "softmax":
+        U = -np.log(np.clip(probs, 1e-5, 1.0)).reshape(n_labels, -1)
+    elif mode == "sigmoid":
+        U = -np.log(np.concatenate([1 - probs, probs], axis=0)).reshape(2, -1)
+    elif mode == "label":
+        probs = probs.flatten()
+        gt_prob = 0.8
+
+        U = np.full((n_labels, len(probs)), -np.log(1 - gt_prob))
+        U[probs, np.arange(U.shape[1])] = -np.log(gt_prob)
+
+    d.setUnaryEnergy(U.astype(np.float32))
+
+    d.addPairwiseGaussian(
+        sxy=5, compat=3, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC
+    )
+
+    d.addPairwiseBilateral(
+        sxy=60,
+        srgb=10,
+        rgbim=img,
+        compat=10,
+        kernel=dcrf.DIAG_KERNEL,
+        normalization=dcrf.NORMALIZE_SYMMETRIC,
+    )
+
+    Q = d.inference(5)
+    Q = np.argmax(Q, axis=0).reshape(img.shape[0], img.shape[1])
+    return Q
+
+
+def generate_weak_label(
+    image, save_path, keypoint, stroke_width=20, pred=None, ignore_index=255,
+):
+    weak_label = []
+
+    if pred is None:
+        for _, joints in keypoint:
+            if len(joints) > 0:
+                label = Image.new(
+                    "L", (image.shape[1], image.shape[0]), color=ignore_index
+                )
+                draw = ImageDraw.Draw(label)
+
+                for i in range(len(joints)):
+                    draw.ellipse(
+                        (
+                            joints[i][0] - stroke_width / 2,
+                            joints[i][1] - stroke_width / 2,
+                            joints[i][0] + stroke_width / 2,
+                            joints[i][1] + stroke_width / 2,
+                        ),
+                        fill=1,
+                    )
+
+                # label = dense_crf(np.array(image), np.array(label), mode="label")
+                # label[label==0] = ignore_index
+            else:
+                label = Image.new("L", (image.shape[1], image.shape[0]), color=0)
+
+            weak_label.append(label)
+    else:
+        for i, _, joints in enumerate(keypoint):
+            if len(joints) > 0:
+                label = pred[i]
+            else:
+                label = Image.new("L", (image.shape[1], image.shape[0]), color=0)
+
+            weak_label.append(label)
+
+    weak_label = np.stack(weak_label, axis=2)
+    with open(save_path, "wb") as fb:
+        pickle.dump(weak_label, fb)

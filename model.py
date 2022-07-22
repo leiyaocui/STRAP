@@ -36,34 +36,27 @@ class Cerberus(nn.Module):
         self.scratch.refinenet04 = _make_fusion_block(features, use_bn)
 
 
-class CerberusSegmentationModel(Cerberus):
-    def __init__(self, task_dict, **kwargs):
-
+class CerberusAffordanceModel(Cerberus):
+    def __init__(self, num_classes, **kwargs):
+        assert num_classes > 0
         features = kwargs["features"] if "features" in kwargs else 256
         kwargs["use_bn"] = True
         super().__init__(**kwargs)
 
-        self.full_output_task_list = []
+        self.num_classes = num_classes
 
-        v_task = list(task_dict.values())[0]
-        num_classes = v_task["num_classes"]
-        task = []
-        for it in v_task["category"]:
-            task.append(it)
-
+        for i in range(self.num_classes):
             setattr(
                 self.scratch,
-                "output_" + it,
+                f"output_{i}",
                 nn.Sequential(
                     nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False),
                     nn.BatchNorm2d(features),
                     nn.ReLU(True),
                     nn.Dropout(0.1, False),
-                    nn.Conv2d(features, num_classes, kernel_size=1),
+                    nn.Conv2d(features, 2, kernel_size=1),
                 ),
             )
-
-        self.full_output_task_list.append(task)
 
     def get_attention(self, x, name):
         if self.channels_last == True:
@@ -89,34 +82,16 @@ class CerberusSegmentationModel(Cerberus):
         path_2 = self.scratch.refinenet02(layer_1_rn.shape[-2:], path_3, layer_2_rn)
         path_1 = self.scratch.refinenet01(None, path_2, layer_1_rn)
 
-        outputs = []
-        for it in self.full_output_task_list[0]:
-            func = eval("self.scratch.output_" + it)
+        output = []
+        for i in range(self.num_classes):
+            func = eval(f"self.scratch.output_{i}")
             out = func(path_1)
-            out = nn.functional.interpolate(out, size=x.shape[-2:], mode="bilinear")
-            outputs.append(out)
+            out = nn.functional.interpolate(
+                out, size=x.shape[-2:], mode="bilinear", align_corners=True
+            )
+            output.append(out)
 
-        return outputs
-
-
-class Interpolate(nn.Module):
-    def __init__(self, scale_factor, mode, align_corners=False):
-        super(Interpolate, self).__init__()
-
-        self.interp = nn.functional.interpolate
-        self.scale_factor = scale_factor
-        self.mode = mode
-        self.align_corners = align_corners
-
-    def forward(self, x):
-        x = self.interp(
-            x,
-            scale_factor=self.scale_factor,
-            mode=self.mode,
-            align_corners=self.align_corners,
-        )
-
-        return x
+        return output
 
 
 class ResidualConvUnit(nn.Module):
@@ -169,7 +144,7 @@ class ResidualConvUnit(nn.Module):
 
 class FeatureFusionBlock(nn.Module):
     def __init__(
-        self, features, activation, bn=False, expand=False, align_corners=False
+        self, features, activation, bn=False, expand=False, align_corners=True
     ):
         super(FeatureFusionBlock, self).__init__()
 
@@ -304,6 +279,6 @@ def _make_scratch(in_shape, out_shape, groups=1, expand=False):
 
 def _make_fusion_block(features, use_bn):
     return FeatureFusionBlock(
-        features, nn.ReLU(False), bn=use_bn, expand=False, align_corners=False
+        features, nn.ReLU(False), bn=use_bn, expand=False, align_corners=True
     )
 

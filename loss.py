@@ -24,16 +24,15 @@ class GatedCRFLoss(torch.nn.Module):
         self.kernels_radius = kernels_radius
         self.kernels_diameter = 2 * self.kernels_radius + 1
 
-    def forward(self, x, y_hat_softmax, mask_src=None, mask_dst=None):
+    def forward(self, x, y_hat, mask_src=None, mask_dst=None):
         assert x.dim() == 4
-        assert x.shape[2:] == y_hat_softmax.shape[2:]
+        assert x.shape[-2:] == y_hat.shape[-2:]
         if mask_src is not None:
-            assert x.shape[2:] == mask_src.shape[2:] and mask_src.shape[1] == 1
+            assert x.shape[-2:] == mask_src.shape[-2:] and mask_src.shape[1] == 1
         if mask_dst is not None:
-            assert x.shape[2:] == mask_dst.shape[2:] and mask_dst.shape[1] == 1
+            assert x.shape[-2:] == mask_dst.shape[-2:] and mask_dst.shape[1] == 1
 
         N, _, H, W = x.shape
-
         device = x.device
 
         kernels = 0
@@ -67,13 +66,10 @@ class GatedCRFLoss(torch.nn.Module):
             kernel = F.unfold(
                 features, self.kernels_diameter, 1, self.kernels_radius
             ).view(n, c, self.kernels_diameter, self.kernels_diameter, h, w)
-
             kernel = kernel - kernel[
                 :, :, self.kernels_radius, self.kernels_radius, :, :
             ].view(n, c, 1, 1, h, w)
-
             kernel = (-0.5 * kernel ** 2).sum(dim=1, keepdim=True).exp()
-
             kernel[:, :, self.kernels_radius, self.kernels_radius, :, :] = 0
 
             kernels += weight * kernel
@@ -98,35 +94,55 @@ class GatedCRFLoss(torch.nn.Module):
             kernels *= mask_dst
 
         y_hat_unfolded = F.unfold(
-            y_hat_softmax, self.kernels_diameter, 1, self.kernels_radius
-        ).view(
-            N,
-            y_hat_softmax.shape[1],
-            self.kernels_diameter,
-            self.kernels_diameter,
-            H,
-            W,
-        )
+            y_hat, self.kernels_diameter, 1, self.kernels_radius
+        ).view(N, y_hat.shape[1], self.kernels_diameter, self.kernels_diameter, H, W)
 
-        product_kernel_x_y_hat = (
+        product_kernels_y_hat = (
             (kernels * y_hat_unfolded)
-            .view(N, y_hat_softmax.shape[1], self.kernels_diameter ** 2, H, W)
+            .view(N, y_hat.shape[1], self.kernels_diameter ** 2, H, W)
             .sum(dim=2, keepdim=False)
         )
 
-        loss = -(product_kernel_x_y_hat * y_hat_softmax).sum()
+        loss = -(product_kernels_y_hat * y_hat).sum()
         loss = kernels.sum() + loss
         loss /= denom
 
         return loss
 
+
+class SigmoidCrossEntropyLoss(torch.nn.Module):
+    def __init__(self, ignore_index=255):
+        super(SigmoidCrossEntropyLoss, self).__init__()
+        self.ignore_index = ignore_index
+
+    def forward(self, x, y):
+        mask = (y != self.ignore_index)
+        x = x.squeeze(1)[mask]
+        z = (x >= 0).float()
+        y = y[mask]
+
+        loss = torch.log(1 + torch.exp(x - 2 * x * z)) + (z - y) * x
+        loss = torch.mean(loss)
+
+        return loss
+
+
 if __name__ == "__main__":
-    x = torch.randn(4, 3, 25, 25)
-    y = torch.randn(4, 2, 25, 25)
-    mask = (torch.randn (4, 1, 25, 25) > 0.5)
-    y_softmax = y.softmax(dim=1)
+    x = [torch.randn(4, 1, 25, 25) for _ in range(6)]
+    y = [(torch.randn(4, 25, 25) > 0.5).int() for _ in range(6)]
 
-    loss_crf =GatedCRFLoss([{"weight": 1, "xy": 6, "image": 0.1}], 5)
+    from time import time
 
-    loss = loss_crf(x, y_softmax, mask_src=mask)
-    print(loss.item())
+    loss_func = GatedCRFLoss(
+        kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
+    )
+    image = torch.randn(4, 3, 25, 25)
+    begin = time()
+    loss = []
+    for i in range(6):
+        loss.append(loss_func(image, x[i]))
+    loss = sum(loss)
+    end = time()
+    print(f"loss: {loss.item()}")
+    print(f"time(ms): {(end - begin) * 1000}")
+
