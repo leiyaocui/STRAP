@@ -59,7 +59,7 @@ def dense_crf(img, probs, mode):
         U = -np.log(np.concatenate([1 - probs, probs], axis=0)).reshape(2, -1)
     elif mode == "label":
         probs = probs.flatten()
-        gt_prob = 0.8
+        gt_prob = 0.7
 
         U = np.full((n_labels, len(probs)), -np.log(1 - gt_prob))
         U[probs, np.arange(U.shape[1])] = -np.log(gt_prob)

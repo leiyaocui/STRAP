@@ -40,14 +40,9 @@ if __name__ == "__main__":
     use_logp = False
 
     if use_logp:
-        # https://arxiv.org/pdf/1809.09077v1.pdf formula (3)
-        if hist.min().int() == 0:
-            log_safety_const = 1.1
-        else:
-            log_safety_const = 0.0
-        classes_weight = 1.0 / torch.log(hist + log_safety_const)
+        classes_weight = 1.0 / torch.log(hist)
     else:
-        classes_weight = 1.0 / hist.clamp(min=1e-6)
+        classes_weight = 1.0 / hist
 
     classes_weight = F.normalize(classes_weight, p=1, dim=0).float().numpy()
 

@@ -10,12 +10,13 @@ affordance:
 class_weight: [0.22723687, 0.54991320, 0.07481813, 0.05361520, 0.05946079, 0.03495581]
 # class_weight: [0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667]
 
-stroke_diameter: 30
+update_dataset: False
 use_grabcut: False
 
-random_crop_size: [321, 321] # [width, height]
-random_scale_max: 2.0
-random_scale_min: 1.0
+stroke_diameter: 40
+random_crop_size: [256, 256] # [width, height]
+random_scale_max: 1.25
+random_scale_min: 0.8
 random_tilt_max_deg: 10
 random_wiggle_max_ratio: 0
 random_horizon_reflect: True

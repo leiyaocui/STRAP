@@ -44,7 +44,7 @@ class RandomScaledTiltedWarpedPIL:
         ]
 
         if self.random_horizon_reflect:
-            if np.random.rand() < 0.5:
+            if np.random.uniform() < 0.5:
                 dst_corners = list(reversed(dst_corners))
 
         src_corners, src_scale = self.generate_corners(data["image"].size)
@@ -68,7 +68,7 @@ class RandomScaledTiltedWarpedPIL:
                     Image.BICUBIC,
                     fillcolor=None,
                 )
-            elif k in ["dense_label", "weak_label", "bgd_label"] and k in data:
+            elif k in ["dense_label", "weak_label", "bgd_label"]:
                 label = data[k]
                 data[k] = [
                     label[i].transform(

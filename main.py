@@ -47,7 +47,7 @@ class CerberusMain:
             self.epochs = config["epochs"]
             self.train_level = config["train_level"]
             assert self.train_level in ["dense", "weak_offline", "weak_online"]
-            self.use_grabcut = config["use_grabcut"]
+            self.update_dataset = config["update_dataset"]
 
             keypoint_path = os.path.join(
                 self.data_dir, "train_affordance_keypoint.yaml"
@@ -62,13 +62,13 @@ class CerberusMain:
             #     kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
             # )
 
-            if self.train_level == "weak_offline":
+            if self.train_level == "weak_offline" and self.update_dataset:
                 updata_tf = TF.Compose(
                     [
                         TF.GenerateBackground(
                             stroke_width=50, num_iters=3, ignore_index=255
                         )
-                        if self.use_grabcut
+                        if config["use_grabcut"]
                         else TF.Identity(),
                         TF.ConvertPointLabel(
                             stroke_width=config["stroke_diameter"], ignore_index=255
@@ -200,7 +200,7 @@ class CerberusMain:
 
     def exec(self):
         if self.mode == "train":
-            if self.train_level == "weak_offline":
+            if self.train_level == "weak_offline" and self.update_dataset:
                 self.update()
             for epoch in range(self.start_epoch + 1, self.epochs + 1):
                 self.train(epoch)
