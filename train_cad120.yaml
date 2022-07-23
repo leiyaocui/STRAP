@@ -6,6 +6,9 @@ data_dir: "../dataset/cad120/object"
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+# class_weight: [0.23328905, 0.28841156, 0.14347772, 0.11838961, 0.12590544, 0.09052663]
+class_weight: [0.22723687, 0.54991320, 0.07481813, 0.05361520, 0.05946079, 0.03495581]
+# class_weight: [0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667]
 
 stroke_diameter: 30
 use_grabcut: False
@@ -17,8 +20,8 @@ random_tilt_max_deg: 10
 random_wiggle_max_ratio: 0
 random_horizon_reflect: True
 
-dataset_mean: [132.47758920907586, 106.32022472065732, 111.5704799224029]
-dataset_std: [67.45043019809088, 70.23484330785524, 72.19806953380163]
+dataset_mean: [132.47758921, 106.32022472, 111.57047992]
+dataset_std: [67.45043020, 70.23484331, 72.19806953]
 
 epochs: 100
 batch_size: 4

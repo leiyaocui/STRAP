@@ -23,7 +23,7 @@ class AverageMeter:
 np.seterr(invalid="ignore")
 
 
-def IoU(output, target, num_classes, ignore_index=255):
+def IoU(output, target, num_class, ignore_index=255):
     pred = output.int().cpu().numpy()
     target = target.int().cpu().numpy()
     mask = target != ignore_index
@@ -31,8 +31,8 @@ def IoU(output, target, num_classes, ignore_index=255):
     pred = pred[mask]
     target = target[mask]
 
-    hist = np.bincount(num_classes * target + pred, minlength=num_classes ** 2).reshape(
-        num_classes, num_classes
+    hist = np.bincount(num_class * target + pred, minlength=num_class ** 2).reshape(
+        num_class, num_class
     )
     ious = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
 

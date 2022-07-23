@@ -37,11 +37,14 @@ if __name__ == "__main__":
     hist = torch.tensor(classes_hist).double()
     hist = F.normalize(hist, p=1, dim=0)
 
-    use_logp = True
+    use_logp = False
 
     if use_logp:
         # https://arxiv.org/pdf/1809.09077v1.pdf formula (3)
-        log_safety_const = 1.1
+        if hist.min().int() == 0:
+            log_safety_const = 1.1
+        else:
+            log_safety_const = 0.0
         classes_weight = 1.0 / torch.log(hist + log_safety_const)
     else:
         classes_weight = 1.0 / hist.clamp(min=1e-6)
@@ -50,3 +53,7 @@ if __name__ == "__main__":
 
     print("classes_weight:")
     print(classes_weight)
+
+# classes_hist: [1452.0, 600.0, 4410.0, 6154.0, 5549.0, 9439.0]
+# classes_weight: [0.23328905 0.28841156 0.14347772 0.11838961 0.12590544 0.09052663] (use log)
+# classes_weight: [0.22723687 0.5499132  0.07481813 0.0536152  0.05946079 0.03495581] (not use log)

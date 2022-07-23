@@ -37,9 +37,11 @@ class CerberusMain:
         self.dst_size = tuple(config["random_crop_size"])
 
         self.class_list = config["affordance"]
-        self.num_classes = len(self.class_list)
+        self.num_class = len(self.class_list)
+        self.class_weight = config["class_weight"]
+        assert len(self.class_weight) == self.num_class
 
-        self.model = CerberusAffordanceModel(self.num_classes)
+        self.model = CerberusAffordanceModel(self.num_class)
 
         if self.mode == "train":
             self.epochs = config["epochs"]
@@ -132,18 +134,16 @@ class CerberusMain:
                 pin_memory=True,
             )
 
+            params = [
+                {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
+                {"params": self.model.scratch.parameters(), "lr": config["lr"]},
+            ]
+
+            for i in range(self.num_class):
+                params.append({"params": eval(f"self.model.sigma.output_{i}.parameters()"), "lr": config["lr"] / self.class_weight[i]})
+
             self.optimizer = torch.optim.SGD(
-                [
-                    {
-                        "params": self.model.pretrained.parameters(),
-                        "lr": config["lr"] / self.num_classes,
-                    },
-                    {
-                        "params": self.model.scratch.parameters(),
-                        "lr": config["lr"] / self.num_classes,
-                    },
-                    {"params": self.model.sigma.parameters(), "lr": config["lr"]},
-                ],
+                params,
                 momentum=config["momentum"],
                 weight_decay=config["weight_decay"],
             )
@@ -217,7 +217,7 @@ class CerberusMain:
 
         loss_meter = AverageMeter()
         score_meter = AverageMeter()
-        score_per_class_meter = [AverageMeter() for _ in range(self.num_classes)]
+        score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
         for data in tqdm(
             self.train_loader, desc=f"[Train] Epoch {epoch:03d}", ncols=80
@@ -227,18 +227,18 @@ class CerberusMain:
                 target = data["dense_label"]
             else:
                 target = data["weak_label"]
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
             output = self.model(input)
 
             pred = []
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 pred.append(output[i].detach().argmax(1))
 
             score = []
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 score_per_class = IoU(
-                    pred[i], data["dense_label"][i], num_classes=2, ignore_index=255,
+                    pred[i], data["dense_label"][i], num_class=2, ignore_index=255,
                 )
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
@@ -249,14 +249,14 @@ class CerberusMain:
                 score_meter.update(score, input.shape[0])
 
             loss = []
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 l_ce = self.loss_ce(output[i], target[i])
-                l = l_ce
+                l = l_ce * self.class_weight[i]
                 loss.append(l)
             loss = sum(loss)
 
             if not torch.isnan(loss):
-                loss_meter.update(loss.item() / self.num_classes, input.shape[0])
+                loss_meter.update(loss.item(), input.shape[0])
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -274,7 +274,7 @@ class CerberusMain:
         self.model.eval()
 
         score_meter = AverageMeter()
-        score_per_class_meter = [AverageMeter() for _ in range(self.num_classes)]
+        score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
         for data in tqdm(self.val_loader, desc=f"[Val] Epoch {epoch:03d}", ncols=80):
             input = data["image"].cuda(non_blocking=True)
@@ -282,13 +282,13 @@ class CerberusMain:
             output = self.model(input)
 
             pred = []
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 pred.append(output[i].detach().argmax(1))
 
             score = []
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 score_per_class = IoU(
-                    pred[i], target[i], num_classes=2, ignore_index=255
+                    pred[i], target[i], num_class=2, ignore_index=255
                 )
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
@@ -302,7 +302,7 @@ class CerberusMain:
                 palette = np.asarray([[0, 0, 0], [255, 255, 255]], dtype=np.uint8)
                 save_dir = os.path.join(self.save_dir, "test_result")
 
-                for i in range(self.num_classes):
+                for i in range(self.num_class):
                     file_name = f"{data['file_name']}_{self.class_list[i]}_pred.png"
                     save_colorful_image(pred[i], file_name, save_dir, palette)
 
@@ -325,7 +325,7 @@ class CerberusMain:
             )
 
             weak_label = data["weak_label"]
-            for i in range(self.num_classes):
+            for i in range(self.num_class):
                 weak_label[i] = weak_label[i].squeeze(0).cpu().numpy()
             weak_label = np.stack(weak_label, axis=2)
             with open(save_path, "wb") as fb:
