@@ -1,8 +1,7 @@
 import numpy as np
 from PIL import Image, ImageDraw
 import torch
-import pickle
-import pydensecrf.densecrf as dcrf
+import cv2
 
 
 class Identity:
@@ -31,7 +30,7 @@ class RandomScaledTiltedWarpedPIL:
             0 <= random_wiggle_max_ratio < 0.5
         ), "random_wiggle_max_ratio must be [0, 0.5)"
 
-        self.dst_size = tuple(random_crop_size)
+        self.dst_size = random_crop_size
         self.random_shrink_min = random_shrink_min
         self.random_shrink_max = random_shrink_max
         self.random_tilt_max_deg = random_tilt_max_deg
@@ -49,7 +48,7 @@ class RandomScaledTiltedWarpedPIL:
         ]
 
         if self.random_horizon_reflect:
-            if np.random.random() < 0.5:
+            if np.random.rand() < 0.5:
                 dst_corners = list(reversed(dst_corners))
 
         src_corners, src_scale = self.generate_corners(data["image"].size)
@@ -70,10 +69,10 @@ class RandomScaledTiltedWarpedPIL:
                     self.dst_size,
                     Image.PERSPECTIVE,
                     warp_coef_inv,
-                    Image.BILINEAR,
+                    Image.BICUBIC,
                     fillcolor=None,
                 )
-            elif k in ["dense_label", "weak_label"] and k in data:
+            elif k in ["dense_label", "weak_label", "bgd_label"] and k in data:
                 label = data[k]
                 data[k] = [
                     label[i].transform(
@@ -222,10 +221,111 @@ class RandomScaledTiltedWarpedPIL:
         return corners, scale
 
 
+class ResizePIL:
+    def __init__(self, dst_size):
+        self.dst_size = dst_size
+
+    def __call__(self, data):
+        if self.dst_size != data["image"].size:
+            data["image"] = data["image"].resize(self.dst_size, Image.BICUBIC)
+
+            label = data["dense_label"]
+            data["dense_label"] = [
+                label[i].resize(self.dst_size, Image.NEAREST) for i in range(len(label))
+            ]
+
+        return data
+
+
+class ConvertPointLabel:
+    def __init__(self, stroke_width, ignore_index=255):
+        self.ignore_index = ignore_index
+        self.stroke_width = stroke_width
+
+    def __call__(self, data):
+        image_size = data["image"].size
+
+        if "bgd_label" in data:
+            bgd_label = data["bgd_label"]
+        else:
+            bgd_label = None
+
+        weak_label = []
+        for _, joints in data["point_label"]:
+            if len(joints) > 0:
+                if bgd_label is None:
+                    label = Image.new("L", image_size, color=self.ignore_index)
+                else:
+                    label = Image.fromarray(bgd_label, mode="L")
+
+                draw = ImageDraw.Draw(label)
+                for i in range(len(joints)):
+                    draw.ellipse(
+                        (
+                            joints[i][0] - self.stroke_width / 2,
+                            joints[i][1] - self.stroke_width / 2,
+                            joints[i][0] + self.stroke_width / 2,
+                            joints[i][1] + self.stroke_width / 2,
+                        ),
+                        fill=1,
+                    )
+            else:
+                label = Image.new("L", image_size, color=0)
+
+            weak_label.append(label)
+
+        data["weak_label"] = weak_label
+
+        return data
+
+
+class GenerateBackground:
+    def __init__(self, stroke_width=50, num_iters=3, ignore_index=255):
+        self.stroke_width = stroke_width
+        self.num_iters = num_iters
+        self.ignore_index = ignore_index
+
+    def __call__(self, data):
+        image = np.array(data["image"])
+
+        bgd_label = Image.new(
+            "L", (image.shape[0], image.shape[1]), color=cv2.GC_PR_BGD
+        )
+        draw = ImageDraw.Draw(bgd_label)
+        for _, joints in data["point_label"]:
+            if len(joints) > 0:
+                for i in range(len(joints)):
+                    draw.ellipse(
+                        (
+                            joints[i][0] - self.stroke_width / 2,
+                            joints[i][1] - self.stroke_width / 2,
+                            joints[i][0] + self.stroke_width / 2,
+                            joints[i][1] + self.stroke_width / 2,
+                        ),
+                        fill=cv2.GC_FGD,
+                    )
+
+        mask = np.array(bgd_label)
+        cv2.grabCut(
+            image, mask, None, None, None, self.num_iters, cv2.GC_INIT_WITH_MASK
+        )
+
+        bgd_label = ((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD)).astype(np.uint8)
+        bgd_label *= self.ignore_index
+
+        data["bgd_label"] = bgd_label
+
+        return data
+
+
 class PILToTensor:
     def __call__(self, data):
+        for k in ["point_label", "bgd_label"]:
+            if k in data:
+                del data[k]
+
         for k in data:
-            if k in ["file_name", "point_label"]:
+            if k in ["file_name"]:
                 continue
             elif k == "image":
                 data[k] = (
@@ -234,13 +334,13 @@ class PILToTensor:
                     .contiguous()
                     .float()
                 )
-            elif k in ["dense_label", "weak_label"] and k in data:
+            elif k in ["dense_label", "weak_label"]:
                 label = data[k]
                 data[k] = [
                     torch.from_numpy(np.array(label[i])).long()
                     for i in range(len(label))
                 ]
-            elif k == "validity" and k in data:
+            elif k == "validity":
                 data[k] = torch.from_numpy(np.array(data[k])).unsqueeze(0).float()
             else:
                 raise ValueError("Not support data's key: {k}")
@@ -278,83 +378,3 @@ class Compose:
             data = tf(data)
 
         return data
-
-
-def dense_crf(img, probs, mode):
-    n_labels = probs.shape[0]
-
-    d = dcrf.DenseCRF2D(img.shape[1], img.shape[0], n_labels)
-
-    if mode == "softmax":
-        U = -np.log(np.clip(probs, 1e-5, 1.0)).reshape(n_labels, -1)
-    elif mode == "sigmoid":
-        U = -np.log(np.concatenate([1 - probs, probs], axis=0)).reshape(2, -1)
-    elif mode == "label":
-        probs = probs.flatten()
-        gt_prob = 0.8
-
-        U = np.full((n_labels, len(probs)), -np.log(1 - gt_prob))
-        U[probs, np.arange(U.shape[1])] = -np.log(gt_prob)
-
-    d.setUnaryEnergy(U.astype(np.float32))
-
-    d.addPairwiseGaussian(
-        sxy=5, compat=3, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC
-    )
-
-    d.addPairwiseBilateral(
-        sxy=60,
-        srgb=10,
-        rgbim=img,
-        compat=10,
-        kernel=dcrf.DIAG_KERNEL,
-        normalization=dcrf.NORMALIZE_SYMMETRIC,
-    )
-
-    Q = d.inference(5)
-    Q = np.argmax(Q, axis=0).reshape(img.shape[0], img.shape[1])
-    return Q
-
-
-def generate_weak_label(
-    image, save_path, keypoint, stroke_width=20, pred=None, ignore_index=255,
-):
-    weak_label = []
-
-    if pred is None:
-        for _, joints in keypoint:
-            if len(joints) > 0:
-                label = Image.new(
-                    "L", (image.shape[1], image.shape[0]), color=ignore_index
-                )
-                draw = ImageDraw.Draw(label)
-
-                for i in range(len(joints)):
-                    draw.ellipse(
-                        (
-                            joints[i][0] - stroke_width / 2,
-                            joints[i][1] - stroke_width / 2,
-                            joints[i][0] + stroke_width / 2,
-                            joints[i][1] + stroke_width / 2,
-                        ),
-                        fill=1,
-                    )
-
-                # label = dense_crf(np.array(image), np.array(label), mode="label")
-                # label[label==0] = ignore_index
-            else:
-                label = Image.new("L", (image.shape[1], image.shape[0]), color=0)
-
-            weak_label.append(label)
-    else:
-        for i, _, joints in enumerate(keypoint):
-            if len(joints) > 0:
-                label = pred[i]
-            else:
-                label = Image.new("L", (image.shape[1], image.shape[0]), color=0)
-
-            weak_label.append(label)
-
-    weak_label = np.stack(weak_label, axis=2)
-    with open(save_path, "wb") as fb:
-        pickle.dump(weak_label, fb)

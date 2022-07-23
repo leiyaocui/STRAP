@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class CustomDataset(Dataset):
-    def __init__(self, data_dir, phase, transforms, label_level=["dense", "weak"]):
+    def __init__(self, data_dir, phase, transforms, label_level=["dense", "weak", "point"]):
         self.transforms = transforms
         self.label_level = label_level
 
@@ -20,6 +20,12 @@ class CustomDataset(Dataset):
             self.weak_label_list = []
             weak_label_save_dir = os.path.join(data_dir, phase + "_weak_label")
             os.makedirs(weak_label_save_dir, exist_ok=True)
+
+        if "point" in self.label_level:
+            self.point_label_list = []
+            point_label_path = os.path.join(data_dir, phase + "_keypoint.yaml")
+            with open(point_label_path, "r") as fb:
+                point_label_dict = yaml.safe_load(fb)
 
         for line in open(os.path.join(data_dir, phase + ".txt"), "r"):
             image_path, label_path = line.strip().split(",")
@@ -36,6 +42,9 @@ class CustomDataset(Dataset):
                 self.weak_label_list.append(
                     os.path.join(weak_label_save_dir, file_name + ".pkl")
                 )
+
+            if "point" in self.label_level:
+                self.point_label_list.append(point_label_dict[file_name])
 
     def __getitem__(self, index):
         data = dict()
@@ -60,6 +69,9 @@ class CustomDataset(Dataset):
                     for i in range(weak_label.shape[2])
                 ]
 
+        if "point" in self.label_level:
+            data["point_label"] = self.point_label_list[index]
+
         # data["validity"] = Image.new("L", data["image"].size, color=1)
 
         data = self.transforms(data)
@@ -71,9 +83,8 @@ class CustomDataset(Dataset):
 
 
 def make_dataloader(
-    data_dir, phase, transforms, label_level=None, **kargs
+    data_dir, phase, transforms, label_level, **kargs
 ):
-    assert label_level is not None
     dataset = CustomDataset(data_dir, phase, transforms, label_level)
 
     return DataLoader(dataset, **kargs)
