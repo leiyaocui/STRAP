@@ -245,10 +245,7 @@ class ConvertPointLabel:
     def __call__(self, data):
         image_size = data["image"].size
 
-        if "bgd_label" in data:
-            bgd_label = data["bgd_label"]
-        else:
-            bgd_label = None
+        bgd_label = np.array(data["bgd_label"]) if "bgd_label" in data else None
 
         weak_label = []
         for _, joints in data["point_label"]:

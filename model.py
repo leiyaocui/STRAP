@@ -17,7 +17,6 @@ class Cerberus(nn.Module):
 
         self.channels_last = channels_last
 
-        # Instantiate backbone and reassemble blocks
         self.pretrained, self.scratch = _make_encoder(
             features,
             use_pretrained=True,
@@ -29,7 +28,6 @@ class Cerberus(nn.Module):
             enable_attention_hooks=enable_attention_hooks,
         )
 
-        # Instantiate sequential fusion blocks
         self.scratch.refinenet01 = _make_fusion_block(features, use_bn)
         self.scratch.refinenet02 = _make_fusion_block(features, use_bn)
         self.scratch.refinenet03 = _make_fusion_block(features, use_bn)
@@ -45,9 +43,10 @@ class CerberusAffordanceModel(Cerberus):
 
         self.num_classes = num_classes
 
+        self.sigma = nn.Module()
         for i in range(self.num_classes):
             setattr(
-                self.scratch,
+                self.sigma,
                 f"output_{i}",
                 nn.Sequential(
                     nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False),
@@ -84,7 +83,7 @@ class CerberusAffordanceModel(Cerberus):
 
         output = []
         for i in range(self.num_classes):
-            func = eval(f"self.scratch.output_{i}")
+            func = eval(f"self.sigma.output_{i}")
             out = func(path_1)
             out = nn.functional.interpolate(
                 out, size=x.shape[-2:], mode="bilinear", align_corners=True

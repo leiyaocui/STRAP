@@ -2,7 +2,6 @@ import os
 import numpy as np
 import yaml
 import shutil
-from pprint import pprint
 from tqdm import tqdm
 from datetime import datetime
 import pickle
@@ -13,31 +12,33 @@ from dataset import make_dataloader
 import transform as TF
 from model import CerberusAffordanceModel
 from loss import GatedCRFLoss
-from util import IoU, AverageMeter, save_colorful_image, generate_weak_label
+from util import IoU, AverageMeter, save_colorful_image
 
 
 class CerberusMain:
     def __init__(self, yaml_path):
         with open(yaml_path, "r") as fb:
             config = yaml.safe_load(fb)
-        pprint(config, sort_dicts=False)
 
-        self.mode = config["mode"]
         self.save_dir = os.path.join(
-            config["save_dir"], self.mode, datetime.now().strftime("%Y%m%d_%H%M%S")
+            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
         )
         os.makedirs(self.save_dir, exist_ok=True)
+
+        print(f"Save Dir: {os.path.abspath(self.save_dir)}")
 
         shutil.copyfile(yaml_path, os.path.join(self.save_dir, "config.yaml"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
+
+        self.mode = config["mode"]
 
         self.data_dir = config["data_dir"]
         self.dst_size = tuple(config["random_crop_size"])
 
         self.class_list = config["affordance"]
         self.num_classes = len(self.class_list)
-        
+
         self.model = CerberusAffordanceModel(self.num_classes)
 
         if self.mode == "train":
@@ -67,7 +68,9 @@ class CerberusMain:
                         )
                         if self.use_grabcut
                         else TF.Identity(),
-                        TF.ConvertPointLabel(stroke_width=config["stroke_diameter"], ignore_index=255),
+                        TF.ConvertPointLabel(
+                            stroke_width=config["stroke_diameter"], ignore_index=255
+                        ),
                         # TF.ImageToTensorWithNumpy(),
                         # TF.ImageNormalizeTensor(
                         #     mean=config["dataset_mean"], std=config["dataset_std"]
@@ -102,7 +105,9 @@ class CerberusMain:
                     if config["random_crop_size"][0] > 0
                     and config["random_crop_size"][1] > 0
                     else TF.Identity(),
-                    TF.ConvertPointLabel(stroke_width=config["stroke_diameter"], ignore_index=255)
+                    TF.ConvertPointLabel(
+                        stroke_width=config["stroke_diameter"], ignore_index=255
+                    )
                     if self.train_level == "weak_online"
                     else TF.Identity(),
                     TF.PILToTensor(),
@@ -132,10 +137,10 @@ class CerberusMain:
 
             self.optimizer = torch.optim.SGD(
                 [
-                    {"params": self.model.pretrained.parameters()},
-                    {"params": self.model.scratch.parameters()},
+                    {"params": self.model.pretrained.parameters(), "lr": config["lr"] / self.num_classes},
+                    {"params": self.model.scratch.parameters(), "lr": config["lr"]  / self.num_classes},
+                    {"params": self.model.sigma.parameters(), "lr": config["lr"]},
                 ],
-                config["lr"],
                 momentum=config["momentum"],
                 weight_decay=config["weight_decay"],
             )
@@ -193,16 +198,13 @@ class CerberusMain:
     def exec(self):
         if self.mode == "train":
             if self.train_level == "weak_offline":
-                self.update(stroke_width=30, use_pred=False)
+                self.update()
             for epoch in range(self.start_epoch + 1, self.epochs + 1):
                 self.train(epoch)
                 score = self.validate(epoch)
                 self.scheduler.step()
 
                 self.save_checkpoint(epoch, score)
-
-                # if self.train_level == "weak" and epoch % 10 == 0:
-                #     self.update(stroke_width=30, use_pred=True)
 
         elif self.mode == "test":
             self.validate(epoch, save_vis=self.save_vis)
@@ -248,20 +250,20 @@ class CerberusMain:
                 l_ce = self.loss_ce(output[i], target[i])
                 l = l_ce
                 loss.append(l)
-            loss = sum(loss) / self.num_classes
+            loss = sum(loss)
 
             if not torch.isnan(loss):
-                loss_meter.update(loss.item(), input.shape[0])
+                loss_meter.update(loss.item() / self.num_classes, input.shape[0])
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
-        self.writer.add_scalar(f"train_loss_avg", loss_meter.avg, global_step=epoch)
-        self.writer.add_scalar(f"train_miou_avg", score_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"loss_train", loss_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"miou_train", score_meter.avg, global_step=epoch)
         for i, it in enumerate(self.class_list):
             self.writer.add_scalar(
-                f"train_{it}_iou_avg", score_per_class_meter[i].avg, global_step=epoch
+                f"iou_{it}_train", score_per_class_meter[i].avg, global_step=epoch
             )
 
     @torch.no_grad()
@@ -301,55 +303,28 @@ class CerberusMain:
                     file_name = f"{data['file_name']}_{self.class_list[i]}_pred.png"
                     save_colorful_image(pred[i], file_name, save_dir, palette)
 
-        self.writer.add_scalar(f"val_miou_avg", score_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"miou_val", score_meter.avg, global_step=epoch)
         for i, it in enumerate(self.class_list):
             self.writer.add_scalar(
-                f"val_{it}_iou_avg", score_per_class_meter[i].avg, global_step=epoch
+                f"iou_{it}_val", score_per_class_meter[i].avg, global_step=epoch
             )
 
         return score_meter.avg
 
     @torch.no_grad()
-    def update(self, stroke_width, use_pred):
+    def update(self):
         self.model.eval()
 
         for data in tqdm(self.update_loader, desc=f"[Update]", ncols=80):
-            # input = data["image"].cuda(non_blocking=True)
-
-            # if use_pred:
-            #     output = self.model(input)
-            #     pred = []
-            #     for i in range(len(output)):
-            #         pred.append(
-            #             output[i].argmax(1).squeeze().cpu().numpy().astype(np.uint8)
-            #         )
-            # else:
-            #     pred = None
-
-            # image = data["image_numpy"][0]
             file_name = data["file_name"][0]
-            # keypoint = self.keypoint_dict[file_name]
             save_path = os.path.join(
                 self.data_dir, "train_affordance_weak_label", file_name + ".pkl"
             )
 
-            # if self.use_grabcut:
-            #     bgd_label = data["bgd_label"]
-            # else:
-            #     bgd_label = None
             weak_label = data["weak_label"]
             weak_label = np.stack(weak_label, axis=2)
             with open(save_path, "wb") as fb:
                 pickle.dump(weak_label, fb)
-
-            # generate_weak_label(
-            #     image,
-            #     save_path,
-            #     keypoint,
-            #     stroke_width,
-            #     bgd_label=bgd_label,
-            #     ignore_index=255,
-            # )
 
     def save_checkpoint(self, epoch, score, backup_freq=10):
         save_dir = os.path.join(self.save_dir, "model")
