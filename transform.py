@@ -12,27 +12,23 @@ class Identity:
 class RandomScaledTiltedWarpedPIL:
     def __init__(
         self,
-        random_crop_size=(0, 0),
-        random_shrink_min=0.5,
-        random_shrink_max=2.0,
+        random_crop_size=(256, 256),
+        random_scale_max=2.0,
+        random_scale_min=0.5,        
         random_tilt_max_deg=10,
         random_wiggle_max_ratio=0,
         random_horizon_reflect=True,
         center_offset_instead_of_random=False,
         ignore_index=255,
     ):
-        assert random_shrink_min > 0, "random_shrink_min must be positive"
-        assert (
-            random_shrink_max >= random_shrink_min
-        ), "random_shrink_max > random_shrink_min"
-        assert random_tilt_max_deg >= 0, "tilt must be non negative"
-        assert (
-            0 <= random_wiggle_max_ratio < 0.5
-        ), "random_wiggle_max_ratio must be [0, 0.5)"
+        assert random_scale_min > 0
+        assert random_scale_max >= random_scale_min
+        assert random_tilt_max_deg >= 0
+        assert 0 <= random_wiggle_max_ratio < 0.5
 
         self.dst_size = random_crop_size
-        self.random_shrink_min = random_shrink_min
-        self.random_shrink_max = random_shrink_max
+        self.random_shrink_min = 1.0 / random_scale_max
+        self.random_shrink_max = 1.0 / random_scale_min
         self.random_tilt_max_deg = random_tilt_max_deg
         self.random_wiggle_max_ratio = random_wiggle_max_ratio
         self.random_horizon_reflect = random_horizon_reflect
@@ -342,15 +338,6 @@ class PILToTensor:
             else:
                 raise ValueError("Not support data's key: {k}")
 
-        return data
-
-
-class ImageToTensorWithNumpy:
-    def __call__(self, data):
-        data["image_numpy"] = np.array(data["image"], dtype=np.uint8)
-        data["image"] = (
-            torch.from_numpy(data["image_numpy"]).permute(2, 0, 1).contiguous().float()
-        )
         return data
 
 

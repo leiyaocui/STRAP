@@ -27,7 +27,7 @@ class CerberusMain:
 
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
 
-        shutil.copyfile(yaml_path, os.path.join(self.save_dir, "config.yaml"))
+        shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -71,10 +71,7 @@ class CerberusMain:
                         TF.ConvertPointLabel(
                             stroke_width=config["stroke_diameter"], ignore_index=255
                         ),
-                        # TF.ImageToTensorWithNumpy(),
-                        # TF.ImageNormalizeTensor(
-                        #     mean=config["dataset_mean"], std=config["dataset_std"]
-                        # ),
+                        TF.PILToTensor(),
                     ]
                 )
 
@@ -92,10 +89,15 @@ class CerberusMain:
 
             train_tf = TF.Compose(
                 [
+                    TF.ConvertPointLabel(
+                        stroke_width=config["stroke_diameter"], ignore_index=255
+                    )
+                    if self.train_level == "weak_online"
+                    else TF.Identity(),
                     TF.RandomScaledTiltedWarpedPIL(
                         random_crop_size=self.dst_size,
-                        random_shrink_min=config["random_shrink_min"],
-                        random_shrink_max=config["random_shrink_max"],
+                        random_scale_min=config["random_scale_min"],
+                        random_scale_max=config["random_scale_max"],
                         random_tilt_max_deg=config["random_tilt_max_deg"],
                         random_wiggle_max_ratio=config["random_wiggle_max_ratio"],
                         random_horizon_reflect=config["random_horizon_reflect"],
@@ -104,11 +106,6 @@ class CerberusMain:
                     )
                     if config["random_crop_size"][0] > 0
                     and config["random_crop_size"][1] > 0
-                    else TF.Identity(),
-                    TF.ConvertPointLabel(
-                        stroke_width=config["stroke_diameter"], ignore_index=255
-                    )
-                    if self.train_level == "weak_online"
                     else TF.Identity(),
                     TF.PILToTensor(),
                     TF.ImageNormalizeTensor(
@@ -137,8 +134,14 @@ class CerberusMain:
 
             self.optimizer = torch.optim.SGD(
                 [
-                    {"params": self.model.pretrained.parameters(), "lr": config["lr"] / self.num_classes},
-                    {"params": self.model.scratch.parameters(), "lr": config["lr"]  / self.num_classes},
+                    {
+                        "params": self.model.pretrained.parameters(),
+                        "lr": config["lr"] / self.num_classes,
+                    },
+                    {
+                        "params": self.model.scratch.parameters(),
+                        "lr": config["lr"] / self.num_classes,
+                    },
                     {"params": self.model.sigma.parameters(), "lr": config["lr"]},
                 ],
                 momentum=config["momentum"],
@@ -322,6 +325,8 @@ class CerberusMain:
             )
 
             weak_label = data["weak_label"]
+            for i in range(self.num_classes):
+                weak_label[i] = weak_label[i].squeeze(0).cpu().numpy()
             weak_label = np.stack(weak_label, axis=2)
             with open(save_path, "wb") as fb:
                 pickle.dump(weak_label, fb)
