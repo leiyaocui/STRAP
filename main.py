@@ -79,7 +79,7 @@ class CerberusMain:
 
                 self.update_loader = make_dataloader(
                     self.data_dir,
-                    f"train_affordance",
+                    "train_affordance",
                     updata_tf,
                     label_level=["point"],
                     batch_size=1,
@@ -125,7 +125,7 @@ class CerberusMain:
 
             self.train_loader = make_dataloader(
                 self.data_dir,
-                f"train_affordance",
+                "train_affordance",
                 train_tf,
                 label_level=train_label_level,
                 batch_size=config["batch_size"],
@@ -140,7 +140,12 @@ class CerberusMain:
             ]
 
             for i in range(self.num_class):
-                params.append({"params": eval(f"self.model.sigma.output_{i}.parameters()"), "lr": config["lr"] / self.class_weight[i]})
+                params.append(
+                    {
+                        "params": eval(f"self.model.sigma.output_{i}.parameters()"),
+                        "lr": config["lr"] / self.class_weight[i],
+                    }
+                )
 
             self.optimizer = torch.optim.SGD(
                 params,
@@ -156,6 +161,8 @@ class CerberusMain:
             torch.backends.cudnn.enabled = True
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.deterministic = True
+        elif self.mode == "test":
+            self.save_vis = config["save_vis"]
 
         val_tf = TF.Compose(
             [
@@ -169,13 +176,13 @@ class CerberusMain:
 
         self.val_loader = make_dataloader(
             self.data_dir,
-            f"val_affordance",
+            "val_affordance",
             val_tf,
             label_level=["dense"],
             batch_size=config["batch_size"],
             shuffle=False,
             num_workers=config["workers"],
-            pin_memory=self.mode == "train",
+            pin_memory=(self.mode == "train"),
             drop_last=False,
         )
 
@@ -216,6 +223,7 @@ class CerberusMain:
         self.model.train()
 
         loss_meter = AverageMeter()
+        # loss_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
         score_meter = AverageMeter()
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
@@ -253,6 +261,10 @@ class CerberusMain:
                 l_ce = self.loss_ce(output[i], target[i])
                 l = l_ce * self.class_weight[i]
                 loss.append(l)
+
+                # if not torch.isnan(l):
+                #     loss_per_class_meter[i].update(l, input.shape[0])
+                
             loss = sum(loss)
 
             if not torch.isnan(loss):
@@ -265,6 +277,9 @@ class CerberusMain:
         self.writer.add_scalar(f"loss_train", loss_meter.avg, global_step=epoch)
         self.writer.add_scalar(f"miou_train", score_meter.avg, global_step=epoch)
         for i, it in enumerate(self.class_list):
+            # self.writer.add_scalar(
+            #     f"loss_{it}_train", loss_per_class_meter[i].avg, global_step=epoch
+            # )
             self.writer.add_scalar(
                 f"iou_{it}_train", score_per_class_meter[i].avg, global_step=epoch
             )
@@ -287,9 +302,7 @@ class CerberusMain:
 
             score = []
             for i in range(self.num_class):
-                score_per_class = IoU(
-                    pred[i], target[i], num_class=2, ignore_index=255
-                )
+                score_per_class = IoU(pred[i], target[i], num_class=2, ignore_index=255)
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
                     score_per_class_meter[i].update(score_per_class, input.shape[0])
