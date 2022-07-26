@@ -65,9 +65,7 @@ class CerberusMain:
             if self.train_level == "weak_offline" and self.update_dataset:
                 updata_tf = TF.Compose(
                     [
-                        TF.GenerateBackground(
-                            stroke_width=50, num_iters=3, ignore_index=255
-                        )
+                        TF.GenerateBackground(ignore_index=255)
                         if config["use_grabcut"]
                         else TF.Identity(),
                         TF.ConvertPointLabel(
@@ -227,9 +225,13 @@ class CerberusMain:
         score_meter = AverageMeter()
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
-        for data in tqdm(
-            self.train_loader, desc=f"[Train] Epoch {epoch:03d}", ncols=80
-        ):
+        loop = tqdm(
+            self.train_loader,
+            desc=f"[Train] Epoch {epoch:03d}",
+            leave=False,
+            unit="batch",
+        )
+        for data in loop:
             input = data["image"].cuda(non_blocking=True)
             if self.train_level == "dense":
                 target = data["dense_label"]
@@ -246,7 +248,7 @@ class CerberusMain:
             score = []
             for i in range(self.num_class):
                 score_per_class = IoU(
-                    pred[i], data["dense_label"][i], num_class=2, ignore_index=255,
+                    pred[i], data["dense_label"][i], num_class=2, ignore_index=255
                 )
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
@@ -264,7 +266,7 @@ class CerberusMain:
 
                 # if not torch.isnan(l):
                 #     loss_per_class_meter[i].update(l, input.shape[0])
-                
+
             loss = sum(loss)
 
             if not torch.isnan(loss):
@@ -273,6 +275,8 @@ class CerberusMain:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+
+            loop.set_postfix(loss=loss.item(), score=score)
 
         self.writer.add_scalar(f"loss_train", loss_meter.avg, global_step=epoch)
         self.writer.add_scalar(f"miou_train", score_meter.avg, global_step=epoch)
@@ -291,7 +295,10 @@ class CerberusMain:
         score_meter = AverageMeter()
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
-        for data in tqdm(self.val_loader, desc=f"[Val] Epoch {epoch:03d}", ncols=80):
+        loop = tqdm(
+            self.val_loader, desc=f"[Val] Epoch {epoch:03d}", leave=False, unit="batch",
+        )
+        for data in loop:
             input = data["image"].cuda(non_blocking=True)
             target = data["dense_label"]
             output = self.model(input)
@@ -310,6 +317,8 @@ class CerberusMain:
             score = np.nanmean(score)
             if not np.isnan(score):
                 score_meter.update(score, input.shape[0])
+
+            loop.set_postfix(score=score)
 
             if save_vis:
                 palette = np.asarray([[0, 0, 0], [255, 255, 255]], dtype=np.uint8)
@@ -331,7 +340,8 @@ class CerberusMain:
     def update(self):
         self.model.eval()
 
-        for data in tqdm(self.update_loader, desc=f"[Update]", ncols=80):
+        loop = tqdm(self.update_loader, desc=f"[Update]", leave=False, unit="batch")
+        for data in loop:
             file_name = data["file_name"][0]
             save_path = os.path.join(
                 self.data_dir, "train_affordance_weak_label", file_name + ".pkl"
@@ -339,7 +349,7 @@ class CerberusMain:
 
             weak_label = data["weak_label"]
             for i in range(self.num_class):
-                weak_label[i] = weak_label[i].squeeze(0).cpu().numpy()
+                weak_label[i] = weak_label[i].squeeze(0).cpu().numpy().astype(np.uint8)
             weak_label = np.stack(weak_label, axis=2)
             with open(save_path, "wb") as fb:
                 pickle.dump(weak_label, fb)

@@ -273,34 +273,32 @@ class ConvertPointLabel:
 
 
 class GenerateBackground:
-    def __init__(self, stroke_width=50, num_iters=3, ignore_index=255):
-        self.stroke_width = stroke_width
-        self.num_iters = num_iters
+    def __init__(self, ignore_index=255):
         self.ignore_index = ignore_index
 
     def __call__(self, data):
         image = np.array(data["image"])
 
         bgd_label = Image.new(
-            "L", (image.shape[0], image.shape[1]), color=cv2.GC_PR_BGD
+            "L", (image.shape[1], image.shape[0]), color=cv2.GC_PR_BGD
         )
         draw = ImageDraw.Draw(bgd_label)
         for _, joints in data["point_label"]:
             if len(joints) > 0:
                 for i in range(len(joints)):
-                    draw.ellipse(
+                    draw.rectangle(
                         (
-                            joints[i][0] - self.stroke_width / 2,
-                            joints[i][1] - self.stroke_width / 2,
-                            joints[i][0] + self.stroke_width / 2,
-                            joints[i][1] + self.stroke_width / 2,
+                            joints[i][0] - image.shape[1] / 3,
+                            joints[i][1] - image.shape[0] / 3,
+                            joints[i][0] + image.shape[1] / 3,
+                            joints[i][1] + image.shape[0] / 3,
                         ),
-                        fill=cv2.GC_FGD,
+                        fill=cv2.GC_PR_FGD,
                     )
 
         mask = np.array(bgd_label)
         cv2.grabCut(
-            image, mask, None, None, None, self.num_iters, cv2.GC_INIT_WITH_MASK
+            image, mask, None, None, None, 3, cv2.GC_INIT_WITH_MASK
         )
 
         bgd_label = ((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD)).astype(np.uint8)

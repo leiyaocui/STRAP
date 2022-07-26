@@ -1,18 +1,18 @@
 mode: "train"
 
-train_level: "weak_online" # dense, weak_online, weak_offline
+train_level: "weak_offline" # dense, weak_online, weak_offline
 
 data_dir: "../dataset/cad120/object"
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
-class_weight: [0.22723687, 0.54991320, 0.07481813, 0.05361520, 0.05946079, 0.03495581]
+class_weight: [0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667]
 
-update_dataset: False
-use_grabcut: False
+update_dataset: True
+use_grabcut: True
 
 stroke_diameter: 40
-random_crop_size: [256, 256] # [width, height]
+random_crop_size: [321, 321] # [width, height]
 random_scale_max: 1.25
 random_scale_min: 0.8
 random_tilt_max_deg: 10
