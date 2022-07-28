@@ -1,8 +1,9 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 
-class GatedCRFLoss(torch.nn.Module):
+class GatedCRFLoss(nn.Module):
     def __init__(self, kernels_desc, kernels_radius):
         """
         GatedCRFLoss
@@ -110,16 +111,19 @@ class GatedCRFLoss(torch.nn.Module):
         return loss
 
 
-class SigmoidCrossEntropyLoss(torch.nn.Module):
+class SigmoidCrossEntropyLoss(nn.Module):
     def __init__(self, ignore_index=255):
         super(SigmoidCrossEntropyLoss, self).__init__()
         self.ignore_index = ignore_index
 
     def forward(self, x, y):
-        mask = (y != self.ignore_index)
-        x = x.squeeze(1)[mask]
-        z = (x >= 0).float()
+        x = x.flatten()
+        y = y.flatten()
+        mask = y != self.ignore_index
+        x = x[mask]
         y = y[mask]
+
+        z = (x >= 0).float()
 
         loss = torch.log(1 + torch.exp(x - 2 * x * z)) + (z - y) * x
         loss = torch.mean(loss)
@@ -127,22 +131,93 @@ class SigmoidCrossEntropyLoss(torch.nn.Module):
         return loss
 
 
+class CyclicalFocalLoss(nn.Module):
+    def __init__(
+        self,
+        gamma_pos=2,
+        gamma_neg=2,
+        gamma_hc=3,
+        eps: float = 0.1,
+        epochs=100,
+        factor=4,
+        ignore_index=255,
+    ):
+        super(CyclicalFocalLoss, self).__init__()
+
+        self.eps = eps
+        self.gamma_hc = gamma_hc
+        self.gamma_pos = gamma_pos
+        self.gamma_neg = gamma_neg
+        self.epochs = epochs
+        self.factor = factor
+        self.ignore_index = ignore_index
+
+    def forward(self, inputs, target, epoch):
+        assert target.dim() == 3 and target.shape[1:] == inputs.shape[2:]
+        num_classes = inputs.shape[1]
+        assert num_classes == 2
+
+        mask = (target != self.ignore_index)
+
+        preds = inputs.softmax(1)
+        targets = torch.stack([(target != 1), target], dim=1)
+
+        # Cyclical
+        if self.factor * epoch < self.epochs:
+            eta = 1 - self.factor * epoch / (self.epochs - 1)
+        else:
+            eta = (self.factor * epoch / (self.epochs - 1) - 1.0) / (self.factor - 1.0)
+
+        # ASL weights
+        anti_targets = 1 - targets
+        xs_pos = preds
+        xs_neg = 1 - xs_pos
+        xs_pos = xs_pos * targets
+        xs_neg = xs_neg * anti_targets
+        asymmetric_w = torch.pow(
+            1 - xs_pos - xs_neg,
+            self.gamma_pos * targets + self.gamma_neg * anti_targets,
+        )
+        positive_w = torch.pow(1 + xs_pos, self.gamma_hc * targets)
+        log_preds = torch.log(preds) * ((1 - eta) * asymmetric_w + eta * positive_w)
+
+        if self.eps > 0:  # label smoothing
+            targets = targets.mul(1 - self.eps).add(self.eps / num_classes)
+
+        # loss calculation
+        loss = -targets.mul(log_preds)
+        loss = loss.sum(dim=1)
+        loss = loss[mask]
+
+        return loss.mean()
+
+
 if __name__ == "__main__":
-    x = [torch.randn(4, 1, 25, 25) for _ in range(6)]
-    y = [(torch.randn(4, 25, 25) > 0.5).int() for _ in range(6)]
+    x = [torch.randn(4, 2, 25, 25) for _ in range(6)]
+    y = [(torch.randn(4, 25, 25) > 0.5).long() for _ in range(6)]
 
     from time import time
 
-    loss_func = GatedCRFLoss(
-        kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
-    )
-    image = torch.randn(4, 3, 25, 25)
+    loss_func = CyclicalFocalLoss()
     begin = time()
     loss = []
     for i in range(6):
-        loss.append(loss_func(image, x[i]))
+        loss.append(loss_func(x[i], y[i], 1))
     loss = sum(loss)
     end = time()
     print(f"loss: {loss.item()}")
     print(f"time(ms): {(end - begin) * 1000}")
+
+    # loss_func = GatedCRFLoss(
+    #     kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
+    # )
+    # image = torch.randn(4, 3, 25, 25)
+    # begin = time()
+    # loss = []
+    # for i in range(6):
+    #     loss.append(loss_func(image, x[i]))
+    # loss = sum(loss)
+    # end = time()
+    # print(f"loss: {loss.item()}")
+    # print(f"time(ms): {(end - begin) * 1000}")
 

@@ -24,9 +24,9 @@ np.seterr(invalid="ignore")
 
 
 def IoU(output, target, num_class, ignore_index=255):
-    pred = output.int().cpu().numpy()
-    target = target.int().cpu().numpy()
-    mask = target != ignore_index
+    pred = output.int().flatten().cpu().numpy()
+    target = target.int().flatten().cpu().numpy()
+    mask = (target != ignore_index)
 
     pred = pred[mask]
     target = target[mask]

@@ -72,7 +72,7 @@ class CustomDataset(Dataset):
         if "point" in self.label_level:
             data["point_label"] = self.point_label_list[index]
 
-        # data["validity"] = Image.new("L", data["image"].size, color=1)
+        data["validity"] = Image.new("L", data["image"].size, color=1)
 
         data = self.transforms(data)
 

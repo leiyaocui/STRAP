@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import make_dataloader
 import transform as TF
 from model import CerberusAffordanceModel
-from loss import GatedCRFLoss
+from loss import GatedCRFLoss, SigmoidCrossEntropyLoss
 from util import IoU, AverageMeter, save_colorful_image
 
 
@@ -24,9 +24,7 @@ class CerberusMain:
             config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
         )
         os.makedirs(self.save_dir, exist_ok=True)
-
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
-
         shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
@@ -45,6 +43,7 @@ class CerberusMain:
 
         if self.mode == "train":
             self.epochs = config["epochs"]
+            self.initial_lr = config["lr"]
             self.train_level = config["train_level"]
             assert self.train_level in ["dense", "weak_offline", "weak_online"]
             self.update_dataset = config["update_dataset"]
@@ -58,9 +57,10 @@ class CerberusMain:
             self.model = self.model.cuda()
 
             self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)
-            # self.loss_crf = GatedCRFLoss(
-            #     kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
-            # )
+            # self.loss_ce = SigmoidCrossEntropyLoss(ignore_index=255)
+            self.loss_crf = GatedCRFLoss(
+                kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
+            )
 
             if self.train_level == "weak_offline" and self.update_dataset:
                 updata_tf = TF.Compose(
@@ -89,6 +89,9 @@ class CerberusMain:
 
             train_tf = TF.Compose(
                 [
+                    TF.GenerateBackground(ignore_index=255)
+                    if config["use_grabcut"]
+                    else TF.Identity(),
                     TF.ConvertPointLabel(
                         stroke_width=config["stroke_diameter"], ignore_index=255
                     )
@@ -130,30 +133,24 @@ class CerberusMain:
                 shuffle=True,
                 num_workers=config["workers"],
                 pin_memory=True,
+                drop_last=False,
             )
 
             params = [
-                {"params": self.model.pretrained.parameters(), "lr": config["lr"]},
-                {"params": self.model.scratch.parameters(), "lr": config["lr"]},
+                {"params": self.model.pretrained.parameters()},
+                {"params": self.model.scratch.parameters()},
             ]
 
             for i in range(self.num_class):
                 params.append(
-                    {
-                        "params": eval(f"self.model.sigma.output_{i}.parameters()"),
-                        "lr": config["lr"] / self.class_weight[i],
-                    }
+                    {"params": eval(f"self.model.sigma.output_{i}.parameters()"),}
                 )
 
             self.optimizer = torch.optim.SGD(
                 params,
+                self.initial_lr,
                 momentum=config["momentum"],
                 weight_decay=config["weight_decay"],
-            )
-
-            lambda_func = lambda e: (1 - e / self.epochs) ** 0.9
-            self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-                self.optimizer, lr_lambda=lambda_func
             )
 
             torch.backends.cudnn.enabled = True
@@ -164,7 +161,9 @@ class CerberusMain:
 
         val_tf = TF.Compose(
             [
-                TF.ResizePIL(self.dst_size),
+                TF.ResizePIL(self.dst_size)
+                if self.dst_size != (321, 321)
+                else TF.Identity(),
                 TF.PILToTensor(),
                 TF.ImageNormalizeTensor(
                     mean=config["dataset_mean"], std=config["dataset_std"]
@@ -177,7 +176,7 @@ class CerberusMain:
             "val_affordance",
             val_tf,
             label_level=["dense"],
-            batch_size=config["batch_size"],
+            batch_size=1,
             shuffle=False,
             num_workers=config["workers"],
             pin_memory=(self.mode == "train"),
@@ -199,23 +198,33 @@ class CerberusMain:
                     for k, v in checkpoint["state_dict"].items()
                 }
             )
-            print(
-                f"Resume Epoch: {checkpoint['epoch']} Best Score: {checkpoint['best_score']}"
-            )
+            print(f"Resume Epoch: {self.start_epoch}")
+            print(f"Score: {checkpoint['score']}")
+            print(f"Best Score: {self.best_score}")
 
     def exec(self):
         if self.mode == "train":
             if self.train_level == "weak_offline" and self.update_dataset:
                 self.update()
             for epoch in range(self.start_epoch + 1, self.epochs + 1):
+                self.adjust_learning_rate(epoch - 1)
                 self.train(epoch)
                 score = self.validate(epoch)
-                self.scheduler.step()
 
                 self.save_checkpoint(epoch, score)
 
         elif self.mode == "test":
             self.validate(epoch, save_vis=self.save_vis)
+
+    def adjust_learning_rate(self, epoch):
+        # epoch in [0, self.epochs)
+        lr = self.initial_lr * (1 - epoch / self.epochs) ** 0.9
+
+        for idx, param_group in enumerate(self.optimizer.param_groups):
+            if idx == 0 or idx == 1:
+                param_group["lr"] = lr
+            else:
+                param_group["lr"] = lr / self.class_weight[idx - 2]
 
     def train(self, epoch):
         self.model.train()
@@ -233,6 +242,7 @@ class CerberusMain:
         )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
+            mask = data["validity"].cuda(non_blocking=True)
             if self.train_level == "dense":
                 target = data["dense_label"]
             else:
@@ -244,6 +254,7 @@ class CerberusMain:
             pred = []
             for i in range(self.num_class):
                 pred.append(output[i].detach().argmax(1))
+                # pred.append((output[i].detach().sigmoid().squeeze(1) > 0.5).int())
 
             score = []
             for i in range(self.num_class):
@@ -261,14 +272,16 @@ class CerberusMain:
             loss = []
             for i in range(self.num_class):
                 l_ce = self.loss_ce(output[i], target[i])
-                l = l_ce * self.class_weight[i]
+                l_crf = self.loss_crf(input, output[i].softmax(1), mask_src=mask)
+                # l_crf = self.loss_crf(input, output[i].sigmoid(), mask_src=mask)
+                l = (l_ce + 0.1 * l_crf) * self.class_weight[i]
+                # l = (l_ce) * self.class_weight[i]
                 loss.append(l)
 
                 # if not torch.isnan(l):
                 #     loss_per_class_meter[i].update(l, input.shape[0])
 
             loss = sum(loss)
-
             if not torch.isnan(loss):
                 loss_meter.update(loss.item(), input.shape[0])
 
@@ -301,11 +314,14 @@ class CerberusMain:
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
             target = data["dense_label"]
+            for i in range(self.num_class):
+                target[i] = target[i].cuda(non_blocking=True)
             output = self.model(input)
 
             pred = []
             for i in range(self.num_class):
                 pred.append(output[i].detach().argmax(1))
+                # pred.append((output[i].detach().sigmoid().squeeze(1) > 0.5).int())
 
             score = []
             for i in range(self.num_class):
@@ -364,6 +380,7 @@ class CerberusMain:
         state = {
             "epoch": epoch,
             "state_dict": self.model.state_dict(),
+            "score": score,
             "best_score": self.best_score,
         }
 
