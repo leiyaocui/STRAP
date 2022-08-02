@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from vit import _make_pretrained_vitb_rn50_384, forward_vit, forward_flex
+from vit import _make_pretrained_vitb_rn50_384, forward_vit
 
 
 class Cerberus(nn.Module):
@@ -56,14 +56,6 @@ class CerberusAffordanceModel(Cerberus):
                     nn.Conv2d(features, 2, kernel_size=1),
                 ),
             )
-
-    def get_attention(self, x, name):
-        if self.channels_last == True:
-            x.contiguous(memory_format=torch.channels_last)
-
-        x = forward_flex(self.pretrained.model, x, True, name)
-
-        return x
 
     def forward(self, x):
         if self.channels_last == True:

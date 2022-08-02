@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import make_dataloader
 import transform as TF
 from model import CerberusAffordanceModel
-from loss import GatedCRFLoss, SigmoidCrossEntropyLoss
+from loss import GatedCRFLoss
 from util import IoU, AverageMeter, save_colorful_image
 
 
@@ -36,8 +36,8 @@ class CerberusMain:
 
         self.class_list = config["affordance"]
         self.num_class = len(self.class_list)
-        self.class_weight = config["class_weight"]
-        assert len(self.class_weight) == self.num_class
+        self.initial_class_weight = config["class_weight"]
+        assert len(self.initial_class_weight) == self.num_class
 
         self.model = CerberusAffordanceModel(self.num_class)
 
@@ -57,7 +57,6 @@ class CerberusMain:
             self.model = self.model.cuda()
 
             self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)
-            # self.loss_ce = SigmoidCrossEntropyLoss(ignore_index=255)
             self.loss_crf = GatedCRFLoss(
                 kernels_desc=[{"weight": 1, "xy": 6, "image": 0.1}], kernels_radius=5,
             )
@@ -161,9 +160,7 @@ class CerberusMain:
 
         val_tf = TF.Compose(
             [
-                TF.ResizePIL(self.dst_size)
-                if self.dst_size != (321, 321)
-                else TF.Identity(),
+                TF.ResizePIL(self.dst_size),
                 TF.PILToTensor(),
                 TF.ImageNormalizeTensor(
                     mean=config["dataset_mean"], std=config["dataset_std"]
@@ -220,6 +217,18 @@ class CerberusMain:
         # epoch in [0, self.epochs)
         lr = self.initial_lr * (1 - epoch / self.epochs) ** 0.9
 
+        self.class_weight = [1.0 / self.num_class] * self.num_class
+        for i in range(self.num_class):
+            if epoch < self.epochs * 1 / 3:
+                self.class_weight[i] = self.initial_class_weight[i]
+            elif epoch < self.epochs * 2 / 3:
+                self.class_weight[i] = (
+                    (1.0 / self.num_class - self.initial_class_weight[i])
+                    / (self.epochs * 1 / 3)
+                ) * (epoch - self.epochs * 1 / 3) + self.initial_class_weight[i]
+            else:
+                self.class_weight[i] = 1.0 / self.num_class
+
         for idx, param_group in enumerate(self.optimizer.param_groups):
             if idx == 0 or idx == 1:
                 param_group["lr"] = lr
@@ -239,6 +248,7 @@ class CerberusMain:
             desc=f"[Train] Epoch {epoch:03d}",
             leave=False,
             unit="batch",
+            ncols=100,
         )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
@@ -272,10 +282,9 @@ class CerberusMain:
             loss = []
             for i in range(self.num_class):
                 l_ce = self.loss_ce(output[i], target[i])
-                l_crf = self.loss_crf(input, output[i].softmax(1), mask_src=mask)
-                # l_crf = self.loss_crf(input, output[i].sigmoid(), mask_src=mask)
-                l = (l_ce + 0.1 * l_crf) * self.class_weight[i]
-                # l = (l_ce) * self.class_weight[i]
+                # l_crf = self.loss_crf(input, output[i].softmax(1), mask_src=mask)
+                # l = (l_ce + 0.1 * l_crf) * self.class_weight[i]
+                l = (l_ce) * self.class_weight[i]
                 loss.append(l)
 
                 # if not torch.isnan(l):
@@ -309,7 +318,11 @@ class CerberusMain:
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
         loop = tqdm(
-            self.val_loader, desc=f"[Val] Epoch {epoch:03d}", leave=False, unit="batch",
+            self.val_loader,
+            desc=f"[Val] Epoch {epoch:03d}",
+            leave=False,
+            unit="batch",
+            ncols=100,
         )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
@@ -356,7 +369,9 @@ class CerberusMain:
     def update(self):
         self.model.eval()
 
-        loop = tqdm(self.update_loader, desc=f"[Update]", leave=False, unit="batch")
+        loop = tqdm(
+            self.update_loader, desc=f"[Update]", leave=False, unit="batch", ncols=100
+        )
         for data in loop:
             file_name = data["file_name"][0]
             save_path = os.path.join(

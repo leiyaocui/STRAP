@@ -118,18 +118,6 @@ def forward_vit(pretrained, x):
     layer_3 = pretrained.act_postprocess3[0:2](layer_3)
     layer_4 = pretrained.act_postprocess4[0:2](layer_4)
 
-    # unflatten = nn.Sequential(
-    #     nn.Unflatten(
-    #         2,
-    #         torch.Size(
-    #             [
-    #                 h // pretrained.model.patch_size[1],
-    #                 w // pretrained.model.patch_size[0],
-    #             ]
-    #         ),
-    #     )
-    # )
-
     unflatten = nn.Sequential(
         nn.Unflatten(
             2,
