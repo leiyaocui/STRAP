@@ -141,9 +141,7 @@ class CerberusMain:
             ]
 
             for i in range(self.num_class):
-                params.append(
-                    {"params": eval(f"self.model.sigma.output_{i}.parameters()"),}
-                )
+                params.append({"params": self.model.head_dict[str(i)].parameters()})
 
             self.optimizer = torch.optim.SGD(
                 params,
@@ -219,15 +217,7 @@ class CerberusMain:
 
         self.class_weight = [1.0 / self.num_class] * self.num_class
         for i in range(self.num_class):
-            if epoch < self.epochs * 1 / 3:
-                self.class_weight[i] = self.initial_class_weight[i]
-            elif epoch < self.epochs * 2 / 3:
-                self.class_weight[i] = (
-                    (1.0 / self.num_class - self.initial_class_weight[i])
-                    / (self.epochs * 1 / 3)
-                ) * (epoch - self.epochs * 1 / 3) + self.initial_class_weight[i]
-            else:
-                self.class_weight[i] = 1.0 / self.num_class
+            self.class_weight[i] = self.initial_class_weight[i]
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
             if idx == 0 or idx == 1:

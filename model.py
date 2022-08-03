@@ -43,19 +43,9 @@ class CerberusAffordanceModel(Cerberus):
 
         self.num_classes = num_classes
 
-        self.sigma = nn.Module()
+        self.head_dict = nn.ModuleDict()
         for i in range(self.num_classes):
-            setattr(
-                self.sigma,
-                f"output_{i}",
-                nn.Sequential(
-                    nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(features),
-                    nn.ReLU(True),
-                    nn.Dropout(0.1, False),
-                    nn.Conv2d(features, 2, kernel_size=1),
-                ),
-            )
+            self.head_dict[str(i)] = _make_head(features)
 
     def forward(self, x):
         if self.channels_last == True:
@@ -71,15 +61,16 @@ class CerberusAffordanceModel(Cerberus):
         path_4 = self.scratch.refinenet04(layer_3_rn.shape[-2:], layer_4_rn)
         path_3 = self.scratch.refinenet03(layer_2_rn.shape[-2:], path_4, layer_3_rn)
         path_2 = self.scratch.refinenet02(layer_1_rn.shape[-2:], path_3, layer_2_rn)
-        path_1 = self.scratch.refinenet01(None, path_2, layer_1_rn)
+        path_1 = self.scratch.refinenet01(x.shape[-2:], path_2, layer_1_rn)
 
         output = []
         for i in range(self.num_classes):
-            func = eval(f"self.sigma.output_{i}")
-            out = func(path_1)
-            out = nn.functional.interpolate(
-                out, size=x.shape[-2:], mode="bilinear", align_corners=True
-            )
+            head_func = self.head_dict[str(i)]
+            out_proj = head_func.proj(path_1)
+            out = head_func.output(out_proj)
+            # out = nn.functional.interpolate(
+            #     out, size=x.shape[-2:], mode="bilinear", align_corners=True
+            # )
             output.append(out)
 
         return output
@@ -273,3 +264,17 @@ def _make_fusion_block(features, use_bn):
         features, nn.ReLU(False), bn=use_bn, expand=False, align_corners=True
     )
 
+
+def _make_head(features):
+    head = nn.Module()
+
+    head.proj = nn.Sequential(
+        nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm2d(features),
+        nn.ReLU(True),
+        nn.Dropout(0.1, False),
+    )
+
+    head.output = nn.Conv2d(features, 2, kernel_size=1)
+
+    return head
