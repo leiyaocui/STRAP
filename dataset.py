@@ -6,7 +6,13 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class CustomDataset(Dataset):
-    def __init__(self, data_dir, phase, transforms, label_level=["dense", "weak", "point"]):
+    def __init__(
+        self,
+        data_dir,
+        phase,
+        transforms,
+        label_level=["dense", "weak", "point", "image"],
+    ):
         self.transforms = transforms
         self.label_level = label_level
 
@@ -27,6 +33,12 @@ class CustomDataset(Dataset):
             with open(point_label_path, "r") as fb:
                 point_label_dict = yaml.safe_load(fb)
 
+        if "image" in self.label_level:
+            self.image_label_list = []
+            image_label_path = os.path.join(data_dir, phase + "_image_label.yaml")
+            with open(image_label_path, "r") as fb:
+                image_label_dict = yaml.safe_load(fb)
+
         for line in open(os.path.join(data_dir, phase + ".txt"), "r"):
             image_path, label_path = line.strip().split(",")
 
@@ -45,6 +57,9 @@ class CustomDataset(Dataset):
 
             if "point" in self.label_level:
                 self.point_label_list.append(point_label_dict[file_name])
+
+            if "image" in self.label_level:
+                self.image_label_list.append(image_label_dict[file_name])
 
     def __getitem__(self, index):
         data = dict()
@@ -72,7 +87,10 @@ class CustomDataset(Dataset):
         if "point" in self.label_level:
             data["point_label"] = self.point_label_list[index]
 
-        data["validity"] = Image.new("L", data["image"].size, color=1)
+        if "image" in self.label_level:
+            data["image_label"] = self.image_label_list[index]
+
+        # data["validity"] = Image.new("L", data["image"].size, color=1)
 
         data = self.transforms(data)
 
@@ -82,9 +100,7 @@ class CustomDataset(Dataset):
         return len(self.image_list)
 
 
-def make_dataloader(
-    data_dir, phase, transforms, label_level, **kargs
-):
+def make_dataloader(data_dir, phase, transforms, label_level, **kargs):
     dataset = CustomDataset(data_dir, phase, transforms, label_level)
 
     return DataLoader(dataset, **kargs)

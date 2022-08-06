@@ -64,9 +64,6 @@ class CerberusMain:
             if self.train_level == "weak_offline" and self.update_dataset:
                 updata_tf = TF.Compose(
                     [
-                        TF.GenerateBackground(ignore_index=255)
-                        if config["use_grabcut"]
-                        else TF.Identity(),
                         TF.ConvertPointLabel(
                             stroke_width=config["stroke_diameter"], ignore_index=255
                         ),
@@ -88,9 +85,6 @@ class CerberusMain:
 
             train_tf = TF.Compose(
                 [
-                    TF.GenerateBackground(ignore_index=255)
-                    if config["use_grabcut"]
-                    else TF.Identity(),
                     TF.ConvertPointLabel(
                         stroke_width=config["stroke_diameter"], ignore_index=255
                     )
@@ -119,7 +113,7 @@ class CerberusMain:
             if self.train_level == "weak_offline":
                 train_label_level = ["dense", "weak"]
             elif self.train_level == "weak_online":
-                train_label_level = ["dense", "point"]
+                train_label_level = ["dense", "point", "image"]
             else:
                 train_label_level = ["dense"]
 
@@ -242,13 +236,18 @@ class CerberusMain:
         )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
-            mask = data["validity"].cuda(non_blocking=True)
+            # mask = data["validity"].cuda(non_blocking=True)
             if self.train_level == "dense":
                 target = data["dense_label"]
             else:
                 target = data["weak_label"]
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
+
+            image_label = data["image_label"]
+            for i in range(self.num_class):
+                image_label[i] = image_label[i].cuda(non_blocking=True)
+
             output = self.model(input)
 
             pred = []
@@ -274,6 +273,9 @@ class CerberusMain:
                 l_ce = self.loss_ce(output[i], target[i])
                 # l_crf = self.loss_crf(input, output[i].softmax(1), mask_src=mask)
                 # l = (l_ce + 0.1 * l_crf) * self.class_weight[i]
+                # l_ce_cls = self.loss_ce(output_cls[i], image_label[i])
+
+                # l = (l_ce + l_ce_cls) * self.class_weight[i]
                 l = (l_ce) * self.class_weight[i]
                 loss.append(l)
 

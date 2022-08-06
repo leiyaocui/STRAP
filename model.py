@@ -45,7 +45,7 @@ class CerberusAffordanceModel(Cerberus):
 
         self.head_dict = nn.ModuleDict()
         for i in range(self.num_classes):
-            self.head_dict[str(i)] = _make_head(features)
+            self.head_dict[str(i)] = _make_head(features, num_classes=2)
 
     def forward(self, x):
         if self.channels_last == True:
@@ -64,6 +64,7 @@ class CerberusAffordanceModel(Cerberus):
         path_1 = self.scratch.refinenet01(x.shape[-2:], path_2, layer_1_rn)
 
         output = []
+        # output_cls = []
         for i in range(self.num_classes):
             head_func = self.head_dict[str(i)]
             out_proj = head_func.proj(path_1)
@@ -73,6 +74,10 @@ class CerberusAffordanceModel(Cerberus):
             # )
             output.append(out)
 
+            # out_cls = head_func.output_cls(out_proj)
+            # output_cls.append(out_cls.view(out_cls.shape[0], out_cls.shape[1]))
+
+        # return output, output_cls
         return output
 
 
@@ -265,7 +270,7 @@ def _make_fusion_block(features, use_bn):
     )
 
 
-def _make_head(features):
+def _make_head(features, num_classes):
     head = nn.Module()
 
     head.proj = nn.Sequential(
@@ -275,6 +280,10 @@ def _make_head(features):
         nn.Dropout(0.1, False),
     )
 
-    head.output = nn.Conv2d(features, 2, kernel_size=1)
+    head.output = nn.Conv2d(features, num_classes, kernel_size=1)
+
+    # head.output_cls = nn.Sequential(
+    #     nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(features, num_classes, kernel_size=1),
+    # )
 
     return head

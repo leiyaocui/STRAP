@@ -58,7 +58,7 @@ class RandomScaledTiltedWarpedPIL:
         warp_coef_fwd = np.append(warp_coef_fwd, 1).reshape((3, 3))
 
         for k in data:
-            if k == "file_name":
+            if k in ["file_name", "image_label"]:
                 continue
             elif k == "image":
                 data[k] = data[k].transform(
@@ -325,7 +325,7 @@ class PILToTensor:
                     .contiguous()
                     .float()
                 )
-            elif k in ["dense_label", "weak_label"]:
+            elif k in ["dense_label", "weak_label", "image_label"]:
                 label = data[k]
                 data[k] = [
                     torch.from_numpy(np.array(label[i])).long()
