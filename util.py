@@ -1,6 +1,7 @@
 import os
 from PIL import Image
 import numpy as np
+
 # import pydensecrf.densecrf as dcrf
 import torch
 
@@ -23,6 +24,7 @@ class AverageMeter:
 np.seterr(invalid="ignore")
 
 
+@torch.no_grad()
 def IoU(output, target, num_class, ignore_index=255):
     pred = output.int().flatten().cpu().numpy()
     target = target.int().flatten().cpu().numpy()
@@ -39,6 +41,7 @@ def IoU(output, target, num_class, ignore_index=255):
     return ious[1] * 100
 
 
+@torch.no_grad()
 def save_colorful_image(data, file_name, save_dir, palettes):
     save_path = os.path.join(save_dir, file_name)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)

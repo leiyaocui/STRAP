@@ -123,8 +123,8 @@ def forward_vit(pretrained, x):
             2,
             torch.Size(
                 [
-                    math.ceil(h / pretrained.model.patch_size[1]),
-                    math.ceil(w / pretrained.model.patch_size[0]),
+                    h // pretrained.model.patch_size[1],
+                    w // pretrained.model.patch_size[0],
                 ]
             ),
         )
@@ -167,11 +167,8 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
 def forward_flex(self, x, attn=False, name=None):
     b, c, h, w = x.shape
 
-    # pos_embed = self._resize_pos_embed(
-    #     self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
-    # )
     pos_embed = self._resize_pos_embed(
-        self.pos_embed, math.ceil(h / self.patch_size[1]), math.ceil(w / self.patch_size[0])
+        self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
     )
 
     if hasattr(self.patch_embed, "backbone"):

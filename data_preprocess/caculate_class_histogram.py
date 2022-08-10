@@ -1,8 +1,7 @@
 import os
 import yaml
 from tqdm import tqdm
-import torch
-import torch.nn.functional as F
+import numpy as np
 
 if __name__ == "__main__":
     task = [
@@ -20,35 +19,35 @@ if __name__ == "__main__":
     with open(keypoint_path, "r") as fb:
         keypoint_dict = yaml.safe_load(fb)
 
-    class_hist = [0.0] * len(task)
+    pos_hist = np.zeros((len(task)))
+    neg_hist = np.zeros((len(task)))
 
     for line in tqdm(
         open(os.path.join(data_dir, "train_affordance.txt"), "r"), ncols=80
     ):
         image_path, _ = line.strip().split(",")
         file_name = os.path.basename(image_path).split(".")[0]
+        keypoint = keypoint_dict[file_name]
+        
+        for i in range(len(task)):
+            if i in keypoint:
+                pos_hist[i] += len(keypoint[i])
+            else:
+                neg_hist[i] += 320 * 320
 
-        for cls_id, joints in keypoint_dict[file_name]:
-            class_hist[int(cls_id)] += len(joints)
+    pos_neg_ratio = pos_hist / neg_hist
 
-    print("class_hist:")
-    print(class_hist)
+    print("pos_hist:")
+    print(pos_hist.tolist())
+    print("neg_hist:")
+    print(neg_hist.tolist())
 
-    hist = torch.tensor(class_hist).double()
-    hist = F.normalize(hist, p=1, dim=0)
+    print("pos_neg_ratio")
+    print(pos_neg_ratio.tolist())
 
-    # classes_weight = 1.0 / hist
-    # class_weight = 1.0 / torch.log(hist)
-    class_weight = torch.exp(-hist)
-
-    class_weight = F.normalize(class_weight, p=1, dim=0)
-    class_weight = class_weight.float().numpy()
-
-    print("class_weight:")
-    print(class_weight)
-
-# class_hist:   [1452.0,     600.0,      4410.0,     6154.0,     5549.0,     9439.0]
-# class_weight: [0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.16666667] (reference)
-# class_weight: [0.22723687, 0.54991320, 0.07481813, 0.05361520, 0.05946079, 0.03495581] (normal) best strategy
-# class_weight: [0.23328905, 0.28841156, 0.14347772, 0.11838961, 0.12590544, 0.09052663] (log)
-# class_weight: [0.18573777, 0.19155999, 0.16686374, 0.15664753, 0.16011870, 0.13907227] (softmax)
+# pos_hist:
+# [3504.0, 944.0, 4832.0, 8147.0, 6981.0, 13483.0]
+# neg_hist:
+# [478924800.0, 672972800.0, 353382400.0, 201728000.0, 226304000.0, 60928000.0]
+# pos_neg_ratio
+# [7.316388710711995e-06, 1.4027312842361533e-06, 1.3673572877426833e-05, 4.03860644035533e-05, 3.0847886029411764e-05, 0.00022129398634453782]

@@ -1,7 +1,6 @@
 import numpy as np
 from PIL import Image, ImageDraw
 import torch
-import cv2
 
 
 class Identity:
@@ -14,7 +13,7 @@ class RandomScaledTiltedWarpedPIL:
         self,
         random_crop_size=(256, 256),
         random_scale_max=2.0,
-        random_scale_min=0.5,        
+        random_scale_min=0.5,
         random_tilt_max_deg=10,
         random_wiggle_max_ratio=0,
         random_horizon_reflect=True,
@@ -58,31 +57,29 @@ class RandomScaledTiltedWarpedPIL:
         warp_coef_fwd = np.append(warp_coef_fwd, 1).reshape((3, 3))
 
         for k in data:
-            if k in ["file_name", "image_label"]:
-                continue
-            elif k == "image":
+            if k == "image":
                 data[k] = data[k].transform(
                     self.dst_size,
-                    Image.PERSPECTIVE,
+                    Image.Transform.PERSPECTIVE,
                     warp_coef_inv,
-                    Image.BICUBIC,
+                    Image.Resampling.BICUBIC,
                     fillcolor=None,
                 )
-            elif k in ["dense_label", "weak_label", "bgd_label"]:
+            elif k in ["dense_label", "weak_label"]:
                 label = data[k]
                 data[k] = [
                     label[i].transform(
                         self.dst_size,
-                        Image.PERSPECTIVE,
+                        Image.Transform.PERSPECTIVE,
                         warp_coef_inv,
-                        Image.NEAREST,
+                        Image.Resampling.NEAREST,
                         fillcolor=self.ignore_index,
                     )
                     for i in range(len(label))
                 ]
             elif k == "point_label":
-                new_label = []
-                for cls_id, joints in data[k]:
+                new_label = {}
+                for cls_id, joints in data[k].items():
                     new_joints = []
                     for pt in joints:
                         pt = np.array([pt[0], pt[1], 1.0], np.float32)
@@ -90,18 +87,16 @@ class RandomScaledTiltedWarpedPIL:
                         pt_x_new = pt_new[0] / pt_new[2]
                         pt_y_new = pt_new[1] / pt_new[2]
                         new_joints.append([pt_x_new, pt_y_new])
-                    new_label.append((cls_id, new_joints))
+                    new_label[cls_id] = new_joints
                 data[k] = new_label
             elif k == "validity":
                 data[k] = data[k].transform(
                     self.dst_size,
-                    Image.PERSPECTIVE,
+                    Image.Transform.PERSPECTIVE,
                     warp_coef_inv,
-                    Image.NEAREST,
+                    Image.Resampling.NEAREST,
                     fillcolor=0,
                 )
-            else:
-                raise ValueError("Not support data's key: {k}")
 
         return data
 
@@ -223,44 +218,33 @@ class ResizePIL:
 
     def __call__(self, data):
         if self.dst_size != data["image"].size:
-            data["image"] = data["image"].resize(self.dst_size, Image.BICUBIC)
+            data["image"] = data["image"].resize(self.dst_size, Image.Resampling.BICUBIC)
 
             label = data["dense_label"]
             data["dense_label"] = [
-                label[i].resize(self.dst_size, Image.NEAREST) for i in range(len(label))
+                label[i].resize(self.dst_size, Image.Resampling.NEAREST) for i in range(len(label))
             ]
 
         return data
 
 
 class ConvertPointLabel:
-    def __init__(self, stroke_width, ignore_index=255):
+    def __init__(self, num_class, ignore_index=255):
+        self.num_class = num_class
         self.ignore_index = ignore_index
-        self.stroke_width = stroke_width
 
     def __call__(self, data):
         image_size = data["image"].size
 
-        bgd_label = np.array(data["bgd_label"]) if "bgd_label" in data else None
-
         weak_label = []
-        for _, joints in data["point_label"]:
-            if len(joints) > 0:
-                if bgd_label is None:
-                    label = Image.new("L", image_size, color=self.ignore_index)
-                else:
-                    label = Image.fromarray(bgd_label, mode="L")
-
+        for i in range(self.num_class):
+            if i in data["point_label"]:
+                joints = data["point_label"][i]
+                label = Image.new("L", image_size, color=self.ignore_index)
                 draw = ImageDraw.Draw(label)
                 for i in range(len(joints)):
-                    draw.ellipse(
-                        (
-                            joints[i][0] - self.stroke_width / 2,
-                            joints[i][1] - self.stroke_width / 2,
-                            joints[i][0] + self.stroke_width / 2,
-                            joints[i][1] + self.stroke_width / 2,
-                        ),
-                        fill=1,
+                    draw.point(
+                        [(joints[i][0], joints[i][1])], fill=1,
                     )
             else:
                 label = Image.new("L", image_size, color=0)
@@ -272,46 +256,9 @@ class ConvertPointLabel:
         return data
 
 
-class GenerateBackground:
-    def __init__(self, ignore_index=255):
-        self.ignore_index = ignore_index
-
-    def __call__(self, data):
-        image = np.array(data["image"])
-
-        bgd_label = Image.new(
-            "L", (image.shape[1], image.shape[0]), color=cv2.GC_PR_BGD
-        )
-        draw = ImageDraw.Draw(bgd_label)
-        for _, joints in data["point_label"]:
-            if len(joints) > 0:
-                for i in range(len(joints)):
-                    draw.rectangle(
-                        (
-                            joints[i][0] - image.shape[1] / 3,
-                            joints[i][1] - image.shape[0] / 3,
-                            joints[i][0] + image.shape[1] / 3,
-                            joints[i][1] + image.shape[0] / 3,
-                        ),
-                        fill=cv2.GC_PR_FGD,
-                    )
-
-        mask = np.array(bgd_label)
-        cv2.grabCut(
-            image, mask, None, None, None, 3, cv2.GC_INIT_WITH_MASK
-        )
-
-        bgd_label = ((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD)).astype(np.uint8)
-        bgd_label *= self.ignore_index
-
-        data["bgd_label"] = bgd_label
-
-        return data
-
-
 class PILToTensor:
     def __call__(self, data):
-        for k in ["point_label", "bgd_label"]:
+        for k in ["point_label"]:
             if k in data:
                 del data[k]
 
@@ -341,8 +288,8 @@ class PILToTensor:
 
 class ImageNormalizeTensor:
     def __init__(self, mean=[0.0, 0.0, 0.0], std=[255.0, 255.0, 255.0]):
-        self.mean = torch.tensor(mean).view(3, 1, 1)
-        self.std = torch.tensor(std).view(3, 1, 1)
+        self.mean = torch.tensor(mean, dtype=torch.float32).view(3, 1, 1)
+        self.std = torch.tensor(std, dtype=torch.float32).view(3, 1, 1)
 
     def __call__(self, data):
         assert torch.is_tensor(data["image"]), "data.image is not a tensor"
