@@ -65,7 +65,7 @@ class RandomScaledTiltedWarpedPIL:
                     Image.Resampling.BICUBIC,
                     fillcolor=None,
                 )
-            elif k in ["dense_label", "weak_label"]:
+            elif k in ["dense_label", "weak_label", "pseudo_label"]:
                 label = data[k]
                 data[k] = [
                     label[i].transform(
@@ -220,10 +220,11 @@ class ResizePIL:
         if self.dst_size != data["image"].size:
             data["image"] = data["image"].resize(self.dst_size, Image.Resampling.BICUBIC)
 
-            label = data["dense_label"]
-            data["dense_label"] = [
-                label[i].resize(self.dst_size, Image.Resampling.NEAREST) for i in range(len(label))
-            ]
+            if "dense_label" in data:
+                label = data["dense_label"]
+                data["dense_label"] = [
+                    label[i].resize(self.dst_size, Image.Resampling.NEAREST) for i in range(len(label))
+                ]
 
         return data
 
@@ -256,6 +257,22 @@ class ConvertPointLabel:
         return data
 
 
+class GenVisibleInfo:
+    def __init__(self, num_class):
+        self.num_class = num_class
+    def __call__(self, data):
+        visible_info = []
+        for i in range(self.num_class):
+            if i in data["point_label"]:
+                visible_info.append(1)
+            else:
+                visible_info.append(0)
+
+        data["visible_info"] = visible_info
+
+        return data    
+
+
 class PILToTensor:
     def __call__(self, data):
         for k in ["point_label"]:
@@ -272,7 +289,7 @@ class PILToTensor:
                     .contiguous()
                     .float()
                 )
-            elif k in ["dense_label", "weak_label", "image_label"]:
+            elif k in ["dense_label", "weak_label", "pseudo_label", "visible_info"]:
                 label = data[k]
                 data[k] = [
                     torch.from_numpy(np.array(label[i])).long()
@@ -292,7 +309,8 @@ class ImageNormalizeTensor:
         self.std = torch.tensor(std, dtype=torch.float32).view(3, 1, 1)
 
     def __call__(self, data):
-        assert torch.is_tensor(data["image"]), "data.image is not a tensor"
+        assert torch.is_tensor(data["image"])
+        data["orig_image"] = data["image"].clone()
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data

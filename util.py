@@ -41,26 +41,6 @@ def IoU(output, target, num_class, ignore_index=255):
     return ious[1] * 100
 
 
-@torch.no_grad()
-def save_colorful_image(data, file_name, save_dir, palettes):
-    save_path = os.path.join(save_dir, file_name)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    data = data.cpu().numpy()
-    img = Image.fromarray(palettes[data])
-    img.save(save_path)
-
-
-@torch.no_grad()
-def save_image(data, file_name, save_dir):
-    save_path = os.path.join(save_dir, file_name)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    data = data.cpu().numpy().squeeze()
-    img = Image.fromarray(data.astype(np.uint8))
-    img.save(save_path)
-
-
 class MinNormSolver:
     MAX_ITER = 250
     STOP_CRIT = 1e-5
