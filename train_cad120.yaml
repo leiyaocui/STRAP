@@ -1,18 +1,19 @@
 mode: "train"
 
-train_level: "dense" # dense, weak
+train_level: "weak" # dense, weak
 use_pseudo: True
+use_refine: False
+use_crf: False
 
 data_dir: "../dataset/cad120/object"
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
-neg_weight: [7.316388710711995e-06, 1.4027312842361533e-06, 1.3673572877426833e-05, 4.03860644035533e-05, 3.0847886029411764e-05, 0.00022129398634453782]
 
 random_crop_size: [320, 320] # [width, height]
-random_scale_max: 2
-random_scale_min: 0.5
-random_tilt_max_deg: 10
+random_scale_max: 1
+random_scale_min: 1
+random_tilt_max_deg: 0
 random_wiggle_max_ratio: 0
 random_horizon_reflect: True
 
@@ -29,4 +30,4 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: ""
+resume: "output/20220815_221149/model/model_best.pth"

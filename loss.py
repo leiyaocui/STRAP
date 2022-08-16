@@ -35,7 +35,11 @@ class GatedCRFLoss(torch.nn.Module):
         N, _, H, W = x.shape
         device = x.device
 
-        y_hat = y_hat.softmax(dim=1)
+        if y_hat.shape[1] == 1:
+            y_hat = y_hat.sigmoid()
+            y_hat = torch.concat([1 - y_hat, y_hat], dim=1)
+        else:
+            y_hat = y_hat.softmax(dim=1)
 
         kernels = 0
         for desc in self.kernels_desc:
@@ -112,28 +116,22 @@ class GatedCRFLoss(torch.nn.Module):
         return loss
 
 
-class SigmoidCrossEntropyLoss(torch.nn.Module):
-    def __init__(self, ignore_index=255, reduction="mean"):
-        super(SigmoidCrossEntropyLoss, self).__init__()
-        self.ignore_index = ignore_index
-        self.reduction = reduction
-        assert self.reduction in ["mean", "sum", "none"]
+def bce_loss(x, y, ignore_index=255):
+    mask = y != ignore_index
+    x = x.squeeze(1)[mask]
+    y = y[mask]
 
-    def forward(self, x, y):
-        mask = y != self.ignore_index
-        x = x[mask]
-        y = y[mask]
+    pos_w = torch.clamp(1 / (y == 1).sum(), max=1.0)
+    neg_w = torch.clamp(1 / (y == 0).sum(), max=1.0)
+    
+    z = (x >= 0).float()
 
-        z = (x >= 0).float()
+    loss = (pos_w * y + neg_w * (1 - y)) * torch.log(1 + torch.exp(x - 2 * x * z)) \
+         + (neg_w * (1 - y) * x * z + pos_w * y * x * (z - 1))
 
-        loss = torch.log(1 + torch.exp(x - 2 * x * z)) + (z - y) * x
+    loss = loss.sum()
 
-        if self.reduction == "mean":
-            loss = loss.mean()
-        elif self.reduction == "sum":
-            loss = loss.sum()
-
-        return loss
+    return loss
 
 
 if __name__ == "__main__":
@@ -142,12 +140,25 @@ if __name__ == "__main__":
     x = [torch.randn(4, 1, 25, 25) for _ in range(6)]
     y = [(torch.randn(4, 25, 25) > 0.5).long() for _ in range(6)]
 
-    loss_func = SigmoidCrossEntropyLoss(ignore_index=255)
     begin = time()
     loss = []
     for i in range(6):
-        loss.append(loss_func(x[i].squeeze(1), y[i], 2))
+        loss.append(bce_loss(x[i], y[i]))
     loss = sum(loss)
     end = time()
     print(f"loss: {loss.item()}")
     print(f"time(ms): {(end - begin) * 1000}")
+
+    loss_func = BCELoss(ignore_index=255)
+    begin = time()
+    loss = []
+    for i in range(6):
+        loss.append(loss_func(x[i], y[i]))
+    loss = sum(loss)
+    end = time()
+    print(f"loss: {loss.item()}")
+    print(f"time(ms): {(end - begin) * 1000}")
+
+
+
+    

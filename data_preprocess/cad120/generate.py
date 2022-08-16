@@ -6,6 +6,7 @@ import shutil
 from tqdm import tqdm
 import yaml
 from glob import glob
+from PIL import Image
 
 
 def get_keypoint(keypoints, visible_info, file_id, num_classes):
@@ -30,17 +31,21 @@ def get_keypoint(keypoints, visible_info, file_id, num_classes):
 
 
 def split_dataset(cad120_path, split_mode):
-    file_all_list = sorted(glob(os.path.join(cad120_path, "object_crop_images", "*.png")))
+    file_all_list = sorted(
+        glob(os.path.join(cad120_path, "object_crop_images", "*.png"))
+    )
     for i in range(len(file_all_list)):
         file_all_list[i] = os.path.basename(file_all_list[i])
-    
+
     print(f"The number of total dataset: {len(file_all_list)}")
 
     train_file_list = []
     test_file_list = file_all_list.copy()
 
     fb = open(f"train_{split_mode}_split_id.txt", "w")
-    for line in open(os.path.join(f"{cad120_path}", "lists", f"train_{split_mode}_split.txt"), "r"):
+    for line in open(
+        os.path.join(f"{cad120_path}", "lists", f"train_{split_mode}_split.txt"), "r"
+    ):
         line = line.strip()
 
         file_name = os.path.basename(line.split(" ")[0])
@@ -62,6 +67,7 @@ def split_dataset(cad120_path, split_mode):
         fb.write(file_id + "\n")
     fb.close()
 
+
 def gen_dataset(cad120_path, save_path, split_mode):
     if os.path.exists(save_path):
         shutil.rmtree(save_path)
@@ -72,7 +78,7 @@ def gen_dataset(cad120_path, save_path, split_mode):
     labels_path = os.path.join(save_path, "affordance", "labels")
     os.makedirs(images_path, exist_ok=True)
     os.makedirs(labels_path, exist_ok=True)
-    
+
     visible_info_dict = dict()
     fb = open(os.path.join(cad120_path, "visible_affordance_info.txt"), "r")
     for line in fb:
@@ -91,18 +97,33 @@ def gen_dataset(cad120_path, save_path, split_mode):
         image_path = os.path.join(cad120_path, "object_crop_images", f"{file_id}.png")
         image_save_path = os.path.join(images_path, f"{file_id}.png")
 
-        shutil.copyfile(image_path, image_save_path)
+        image = (
+            Image.open(image_path)
+            .convert("RGB")
+            .resize((320, 320), Image.Resampling.LANCZOS)
+        )
+        image.save(image_save_path)
 
-        label_path = os.path.join(cad120_path, "segmentation_mat", f"{file_id}_binary_multilabel.mat")
+        label_path = os.path.join(
+            cad120_path, "segmentation_mat", f"{file_id}_binary_multilabel.mat"
+        )
         label_save_path = os.path.join(labels_path, f"{file_id}.pkl")
 
         label = loadmat(label_path)["data"].astype(np.uint8)
-        assert label.max() <= 1
+        label = [
+            Image.fromarray(label[:, :, i], mode="L").resize(
+                (320, 320), Image.Resampling.NEAREST
+            )
+            for i in range(label.shape[2])
+        ]
+        label = np.stack(label, axis=2)
         with open(label_save_path, "wb") as f:
             pickle.dump(label, f)
 
         visible_info = visible_info_dict[file_id]
-        keypoint_dict[file_id] = get_keypoint(keypoints, visible_info, file_id, num_classes=6)
+        keypoint_dict[file_id] = get_keypoint(
+            keypoints, visible_info, file_id, num_classes=6
+        )
 
         fb.write(
             os.path.relpath(image_save_path, save_path)
@@ -122,16 +143,29 @@ def gen_dataset(cad120_path, save_path, split_mode):
         image_path = os.path.join(cad120_path, "object_crop_images", f"{file_id}.png")
         image_save_path = os.path.join(images_path, f"{file_id}.png")
 
-        shutil.copyfile(image_path, image_save_path)
+        image = (
+            Image.open(image_path)
+            .convert("RGB")
+            .resize((320, 320), Image.Resampling.LANCZOS)
+        )
+        image.save(image_save_path)
 
-        label_path = os.path.join(cad120_path, "segmentation_mat", f"{file_id}_binary_multilabel.mat")
+        label_path = os.path.join(
+            cad120_path, "segmentation_mat", f"{file_id}_binary_multilabel.mat"
+        )
         label_save_path = os.path.join(labels_path, f"{file_id}.pkl")
 
         label = loadmat(label_path)["data"].astype(np.uint8)
-        assert label.max() <= 1
+        label = [
+            Image.fromarray(label[:, :, i], mode="L").resize(
+                (320, 320), Image.Resampling.NEAREST
+            )
+            for i in range(label.shape[2])
+        ]
+        label = np.stack(label, axis=2)
         with open(label_save_path, "wb") as f:
             pickle.dump(label, f)
-        
+
         fb.write(
             os.path.relpath(image_save_path, save_path)
             + ","
@@ -139,6 +173,7 @@ def gen_dataset(cad120_path, save_path, split_mode):
             + "\n"
         )
     fb.close()
+
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))

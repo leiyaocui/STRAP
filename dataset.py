@@ -7,7 +7,12 @@ from torch.utils.data import Dataset, DataLoader
 
 class CustomDataset(Dataset):
     def __init__(
-        self, data_dir, phase, transforms, label_level=["dense", "point", "pseudo"],
+        self,
+        data_dir,
+        phase,
+        transforms,
+        label_level=["dense", "point", "pseudo", "valid"],
+        pseudo_label_dir=None,
     ):
         self.transforms = transforms
         self.label_level = label_level
@@ -26,8 +31,7 @@ class CustomDataset(Dataset):
 
         if "pseudo" in self.label_level:
             self.pseudo_label_list = []
-            pseudo_label_path = os.path.join(data_dir, "pseudo_label")
-            os.makedirs(pseudo_label_path, exist_ok=True)
+            assert os.path.exists(pseudo_label_dir)
 
         for line in open(os.path.join(data_dir, phase + ".txt"), "r"):
             image_path, label_path = line.strip().split(",")
@@ -45,7 +49,7 @@ class CustomDataset(Dataset):
 
             if "pseudo" in self.label_level:
                 self.pseudo_label_list.append(
-                    os.path.join(pseudo_label_path, file_name + ".pkl")
+                    os.path.join(pseudo_label_dir, file_name + ".pkl")
                 )
 
     def __getitem__(self, index):
@@ -63,19 +67,23 @@ class CustomDataset(Dataset):
                     for i in range(dense_label.shape[2])
                 ]
 
+        if "pseudo" in self.label_level and os.path.exists(
+            self.pseudo_label_list[index]
+        ):
+            with open(self.pseudo_label_list[index], "rb") as fb:
+                pseudo_label = pickle.load(fb)
+                data["pseudo_label"] = [
+                    Image.fromarray(pseudo_label[:, :, i], mode="L")
+                    for i in range(pseudo_label.shape[2])
+                ]
+        
         if "point" in self.label_level:
             data["point_label"] = self.point_label_list[index]
 
-        if "pseudo" in self.label_level:
-            if os.path.exists(self.pseudo_label_list[index]):
-                with open(self.pseudo_label_list[index], "rb") as fb:
-                    pseudo_label = pickle.load(fb)
-                    data["pseudo_label"] = [
-                        Image.fromarray(pseudo_label[:, :, i], mode="L")
-                        for i in range(pseudo_label.shape[2])
-                    ]
+        data["invalid_mask"] = Image.new("L", data["image"].size, color=0)
 
-        data["validity"] = Image.new("L", data["image"].size, color=1)
+        if "valid" in self.label_level:
+            data["valid_mask"] = Image.new("L", data["image"].size, color=1)
 
         return self.transforms(data)
 
@@ -83,7 +91,9 @@ class CustomDataset(Dataset):
         return len(self.image_list)
 
 
-def make_dataloader(data_dir, phase, transforms, label_level, **kargs):
-    dataset = CustomDataset(data_dir, phase, transforms, label_level)
+def make_dataloader(
+    data_dir, phase, transforms, label_level, pseudo_label_dir=None, **kargs
+):
+    dataset = CustomDataset(data_dir, phase, transforms, label_level, pseudo_label_dir)
 
     return DataLoader(dataset, **kargs)

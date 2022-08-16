@@ -89,7 +89,15 @@ class RandomScaledTiltedWarpedPIL:
                         new_joints.append([pt_x_new, pt_y_new])
                     new_label[cls_id] = new_joints
                 data[k] = new_label
-            elif k == "validity":
+            elif k == "invalid_mask":
+                data[k] = data[k].transform(
+                    self.dst_size,
+                    Image.Transform.PERSPECTIVE,
+                    warp_coef_inv,
+                    Image.Resampling.NEAREST,
+                    fillcolor=self.ignore_index,
+                )
+            elif k == "valid_mask":
                 data[k] = data[k].transform(
                     self.dst_size,
                     Image.Transform.PERSPECTIVE,
@@ -218,21 +226,48 @@ class ResizePIL:
 
     def __call__(self, data):
         if self.dst_size != data["image"].size:
-            data["image"] = data["image"].resize(self.dst_size, Image.Resampling.BICUBIC)
+            data["image"] = data["image"].resize(
+                self.dst_size, Image.Resampling.BICUBIC
+            )
 
-            if "dense_label" in data:
-                label = data["dense_label"]
-                data["dense_label"] = [
-                    label[i].resize(self.dst_size, Image.Resampling.NEAREST) for i in range(len(label))
-                ]
+            for it in ["dense_label", "weak_label", "pseudo_label"]:
+                if it in data:
+                    label = data[it]
+                    data[it] = [
+                        label[i].resize(self.dst_size, Image.Resampling.NEAREST)
+                        for i in range(len(label))
+                    ]
+
+            # if "invalid_mask" in data:
+            #     data["invalid_mask"] = Image.new("L", data["image"].size, color=0)
+
+            # if "valid_mask" in data:
+            #     data["valid_mask"] = Image.new("L", data["image"].size, color=1)
+
+        return data
+
+
+class RandomHorizonalReflect:
+    def __call__(self, data):
+        if np.random.uniform() < 0.5:
+            data["image"] = data["image"].transpose(Image.FLIP_LEFT_RIGHT)
+            for k in ["dense_label", "pseudo_label"]:
+                if k in data:
+                    label = data[k]
+                    data[k] = [
+                        it.transpose(Image.FLIP_LEFT_RIGHT) for it in label
+                    ]
 
         return data
 
 
 class ConvertPointLabel:
-    def __init__(self, num_class, ignore_index=255):
+    def __init__(self, num_class, point_radius=0, ignore_index=255):
         self.num_class = num_class
+        self.point_radius = point_radius
         self.ignore_index = ignore_index
+
+        assert self.point_radius >= 0
 
     def __call__(self, data):
         image_size = data["image"].size
@@ -244,11 +279,24 @@ class ConvertPointLabel:
                 label = Image.new("L", image_size, color=self.ignore_index)
                 draw = ImageDraw.Draw(label)
                 for i in range(len(joints)):
-                    draw.point(
-                        [(joints[i][0], joints[i][1])], fill=1,
-                    )
+                    if self.point_radius == 0:
+                        draw.point([(joints[i][0], joints[i][1])], fill=1)
+                    else:
+                        draw.ellipse(
+                            [
+                                (
+                                    joints[i][0] - self.point_radius,
+                                    joints[i][1] - self.point_radius,
+                                ),
+                                (
+                                    joints[i][0] + self.point_radius,
+                                    joints[i][1] + self.point_radius,
+                                ),
+                            ],
+                            fill=1,
+                        )
             else:
-                label = Image.new("L", image_size, color=0)
+                label = data["invalid_mask"]
 
             weak_label.append(label)
 
@@ -260,6 +308,7 @@ class ConvertPointLabel:
 class GenVisibleInfo:
     def __init__(self, num_class):
         self.num_class = num_class
+
     def __call__(self, data):
         visible_info = []
         for i in range(self.num_class):
@@ -270,7 +319,7 @@ class GenVisibleInfo:
 
         data["visible_info"] = visible_info
 
-        return data    
+        return data
 
 
 class PILToTensor:
@@ -295,7 +344,7 @@ class PILToTensor:
                     torch.from_numpy(np.array(label[i])).long()
                     for i in range(len(label))
                 ]
-            elif k == "validity":
+            elif k in ["invalid_mask", "valid_mask"]:
                 data[k] = torch.from_numpy(np.array(data[k])).unsqueeze(0).float()
             else:
                 raise ValueError("Not support data's key: {k}")
@@ -310,7 +359,7 @@ class ImageNormalizeTensor:
 
     def __call__(self, data):
         assert torch.is_tensor(data["image"])
-        data["orig_image"] = data["image"].clone()
+        data["orig_image"] = data["image"].clone() / 255.0
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data
