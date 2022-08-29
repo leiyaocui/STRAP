@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 import torch.nn.functional as F
 
@@ -9,10 +8,13 @@ class DPT(nn.Module):
     def __init__(
         self,
         features=256,
+        channels_last=False,
         use_bn=False,
         expand=False,
     ):
         super(DPT, self).__init__()
+
+        self.channels_last = channels_last
 
         self.pretrained, self.scratch = _make_encoder(
             features,
@@ -65,7 +67,7 @@ class DPTAffordanceModel(DPT):
         for i in range(self.num_classes):
             self.head_dict[str(i)] = _make_head(features)
 
-    def forward(self, x):
+    def forward(self, x, extract_high_feat=False):
         layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
 
         layer_1_rn = self.scratch.layer1_rn(layer_1)
@@ -79,15 +81,22 @@ class DPTAffordanceModel(DPT):
         path_1 = self.scratch.refinenet01(path_2, layer_1_rn)
 
         output = []
-        for i in range(self.num_classes):
-            out = self.head_dict[str(i)](path_1)
-            out = F.interpolate(out,
-                                x.shape[-2:],
-                                mode="bilinear",
-                                align_corners=False)
-            output.append(out)
+        if extract_high_feat:
+            high_feat = []
 
-        return output
+        for i in range(self.num_classes):
+            head_func = self.head_dict[str(i)]
+
+            out_proj = head_func.proj(path_1)
+            output.append(head_func.output(out_proj))
+
+            if extract_high_feat:
+                high_feat.append(head_func.embedding(out_proj))
+
+        if extract_high_feat:
+            return output, high_feat
+        else:
+            return output
 
 
 class ResidualConvUnit(nn.Module):
@@ -258,12 +267,21 @@ def _make_fusion_block(features, use_bn, expand=False):
 def _make_head(features):
     head = nn.Module()
 
-    head = nn.Sequential(
+    head.proj = nn.Sequential(
         nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False),
         nn.BatchNorm2d(features),
         nn.ReLU(True),
+    )
+
+    head.output = nn.Sequential(
         nn.Dropout(0.1, False),
         nn.Conv2d(features, 1, kernel_size=1),
+    )
+
+    head.embedding = nn.Sequential(
+        nn.Conv2d(features, features, kernel_size=1, bias=False),
+        nn.BatchNorm2d(features),
+        nn.ReLU(True),
     )
 
     return head

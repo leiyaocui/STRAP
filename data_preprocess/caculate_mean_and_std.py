@@ -1,18 +1,21 @@
 import os
-import glob
 from PIL import Image
 import numpy as np
 from tqdm import tqdm
 
 if __name__ == "__main__":
-    dataset_path = "../dataset/cad120/object/affordance/images"
-    image_path_list = glob.glob(os.path.join(dataset_path, "*.png"))
-    assert len(image_path_list) > 0
+    dataset_path = "../dataset/cad120/object"
+    fb = open(os.path.join(dataset_path, "train_affordance.txt"), "r")
+    image_path_list = []
+    for line in fb:
+        line = line.strip()
+        image_path = os.path.join(dataset_path, line.split(",")[0])
+        image_path_list.append(image_path)
 
     c_sum = np.zeros(3)
     c_num = 0
     for path in tqdm(image_path_list, ncols=80):
-        img = np.array(Image.open(path).convert("RGB"))
+        img = np.array(Image.open(path))
         h, w, c = img.shape
         c_sum += img.sum(axis=(0, 1))
         c_num += h * w
@@ -24,13 +27,15 @@ if __name__ == "__main__":
     c_sum = np.zeros(3)
     c_num = 0
     for path in tqdm(image_path_list, ncols=80):
-        img = np.array(Image.open(path).convert("RGB"))
+        img = np.array(Image.open(path))
         h, w, c = img.shape
         c_sum += np.sum((img - c_mean) ** 2, axis=(0, 1))
         c_num += h * w
 
-    c_std = np.sqrt(c_sum / (c_num - 1))
+    c_std = np.sqrt(c_sum / c_num)
     print(f"Std(RGB order): [{c_std[0]}, {c_std[1]}, {c_std[2]}]")
 
 # dataset_mean: [132.47758920907586, 106.32022472065732, 111.5704799224029]
 # dataset_std: [67.45043019809088, 70.23484330785524, 72.19806953380163]
+# [132.2869, 106.8706, 112.8857]
+# [68.9264, 71.0991, 72.8950]

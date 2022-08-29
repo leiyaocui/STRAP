@@ -5,13 +5,14 @@ import shutil
 from tqdm import tqdm
 from datetime import datetime
 import torch
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import make_dataloader
 import transform as TF
-from model import DPTAffordanceModel
+from model_tree import DPTAffordanceModel
 
-from loss import bce_loss, gated_crf_loss
+from loss import bce_loss, TreeEnergyLoss
 from util import IoU, AverageMeter
 
 
@@ -48,6 +49,8 @@ class CerberusMain:
 
             self.model = self.model.cuda()
 
+            self.loss_tree = TreeEnergyLoss().cuda()
+
             train_tf = TF.Compose([
                 TF.RandomHorizonalFlipPIL(),
                 TF.ConvertPointLabel(self.num_class,
@@ -78,7 +81,7 @@ class CerberusMain:
                 },
             ]
 
-            for i in range(len(self.model.head_dict)):
+            for i in range(self.num_class):
                 params.append(
                     {"params": self.model.head_dict[str(i)].parameters()})
 
@@ -143,9 +146,9 @@ class CerberusMain:
         lr = self.initial_lr * (1 - epoch / self.epochs)**0.9
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
-            if idx < 2:
+            if idx == 0 or idx == 1:
                 param_group["lr"] = lr / self.num_class
-            elif idx:
+            else:
                 param_group["lr"] = lr
 
     def train(self, epoch):
@@ -160,17 +163,17 @@ class CerberusMain:
                     leave=False,
                     ncols=100)
         for data in loop:
-            input = data["image"].cuda(non_blocking=True)
-            orig_input = data["orig_image"].cuda(non_blocking=True)
+            input = data["image"].cuda()
+            orig_input = data["orig_image"].cuda()
+            invalid_mask = data["invalid_mask"].cuda()
             target = data["weak_label"]
             for i in range(self.num_class):
-                target[i] = target[i].cuda(non_blocking=True)
+                target[i] = target[i].cuda()
 
-            output = self.model(input)
-
+            output, high_feat = self.model(input, extract_high_feat=True)
             pred = []
             for i in range(self.num_class):
-                pred.append((output[i].detach() > 0).int())
+                pred.append((output[i] > 0).int())
 
             score = []
             for i in range(self.num_class):
@@ -194,27 +197,25 @@ class CerberusMain:
                 l_ce = bce_loss(output[i],
                                 target[i],
                                 ignore_index=self.ignore_index)
-                l_crf = gated_crf_loss(
-                    orig_input,
-                    output[i],
-                    kernels_desc=[{
-                        'weight': 1,
-                        'xy': 6,
-                        'image': 0.1,
-                    }],
-                    kernels_radius=5,
-                )
 
-                l = l_ce + 0.1 * l_crf
-                # l = l_ce
+                unlabel_ROIs = torch.zeros_like(output[i])
+                unlabel_ROIs[(target[i].unsqueeze(1) == self.ignore_index)
+                                & (invalid_mask == 0)] = 1
+                l_tree = self.loss_tree(output[i], orig_input,
+                                        high_feat[i], unlabel_ROIs)
+
+                l = l_ce + 0.4 * l_tree
+
                 loss.append(l)
+
             loss = sum(loss)
+            if not torch.isnan(loss):
+                loss_meter.update(loss.item(), input.shape[0])
 
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
 
-            loss_meter.update(loss.item(), input.shape[0])
             loop.set_postfix(loss=loss.item(), score=score)
 
         self.writer.add_scalar(f"loss_train",
@@ -242,16 +243,21 @@ class CerberusMain:
                     leave=False,
                     ncols=100)
         for data in loop:
-            input = data["image"].cuda(non_blocking=True)
+            input = data["image"].cuda()
+            # orig_input = data["orig_image"].cuda()
             target = data["dense_label"]
             for i in range(self.num_class):
-                target[i] = target[i].cuda(non_blocking=True)
-
+                target[i] = target[i].cuda()
             output = self.model(input)
 
             pred = []
             for i in range(self.num_class):
-                pred.append((output[i].detach() > 0).int())
+                output[i] = F.interpolate(output[i],
+                                          target[i].shape[-2:],
+                                          mode="bilinear",
+                                          align_corners=True)
+                # refined_output = self.refine_method(orig_input, output[i].detach())
+                pred.append((output[i] > 0).int())
 
             score = []
             for i in range(self.num_class):

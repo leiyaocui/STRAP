@@ -11,7 +11,7 @@ class CustomDataset(Dataset):
         data_dir,
         phase,
         transforms,
-        label_level=["dense", "point", "pseudo", "valid"],
+        label_level=["dense", "point", "pseudo"],
         pseudo_label_dir=None,
     ):
         self.transforms = transforms
@@ -81,9 +81,6 @@ class CustomDataset(Dataset):
             data["point_label"] = self.point_label_list[index]
 
         data["invalid_mask"] = Image.new("L", data["image"].size, color=0)
-
-        if "valid" in self.label_level:
-            data["valid_mask"] = Image.new("L", data["image"].size, color=1)
 
         return self.transforms(data)
 

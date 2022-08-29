@@ -111,19 +111,14 @@ def forward_flex(self, x):
         self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
     )
 
-    if hasattr(self.patch_embed, "backbone"):
-        x = self.patch_embed.backbone(x)
-        if isinstance(x, (list, tuple)):
-            x = x[-1]  # last feature if backbone outputs list/tuple of features
+    x = self.patch_embed.backbone(x)
+    if isinstance(x, (list, tuple)):
+        x = x[-1]  # last feature if backbone outputs list/tuple of features
 
     x = self.patch_embed.proj(x).flatten(2).transpose(1, 2)
 
     cls_tokens = self.cls_token.expand(b, -1, -1)
-    if self.dist_token:
-        dist_token = self.dist_token.expand(b, -1, -1)
-        x = torch.cat((cls_tokens, dist_token, x), dim=1)
-    else:
-        x = torch.cat((cls_tokens, x), dim=1)
+    x = torch.cat((cls_tokens, x), dim=1)
 
     x = x + pos_embed
     x = self.pos_drop(x)

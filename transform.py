@@ -1,6 +1,7 @@
 import numpy as np
 from PIL import Image, ImageDraw
 import torch
+import cv2
 
 
 class Identity:
@@ -60,9 +61,9 @@ class RandomScaledTiltedWarpedPIL:
             if k == "image":
                 data[k] = data[k].transform(
                     self.dst_size,
-                    Image.Transform.PERSPECTIVE,
+                    Image.PERSPECTIVE,
                     warp_coef_inv,
-                    Image.Resampling.BICUBIC,
+                    Image.BICUBIC,
                     fillcolor=None,
                 )
             elif k in ["dense_label", "weak_label", "pseudo_label"]:
@@ -70,9 +71,9 @@ class RandomScaledTiltedWarpedPIL:
                 data[k] = [
                     label[i].transform(
                         self.dst_size,
-                        Image.Transform.PERSPECTIVE,
+                        Image.PERSPECTIVE,
                         warp_coef_inv,
-                        Image.Resampling.NEAREST,
+                        Image.NEAREST,
                         fillcolor=self.ignore_index,
                     )
                     for i in range(len(label))
@@ -92,18 +93,10 @@ class RandomScaledTiltedWarpedPIL:
             elif k == "invalid_mask":
                 data[k] = data[k].transform(
                     self.dst_size,
-                    Image.Transform.PERSPECTIVE,
+                    Image.PERSPECTIVE,
                     warp_coef_inv,
-                    Image.Resampling.NEAREST,
+                    Image.NEAREST,
                     fillcolor=self.ignore_index,
-                )
-            elif k == "valid_mask":
-                data[k] = data[k].transform(
-                    self.dst_size,
-                    Image.Transform.PERSPECTIVE,
-                    warp_coef_inv,
-                    Image.Resampling.NEAREST,
-                    fillcolor=0,
                 )
 
         return data
@@ -220,104 +213,82 @@ class RandomScaledTiltedWarpedPIL:
         return corners, scale
 
 
-class ResizePIL:
-    def __init__(self, dst_size):
-        self.dst_size = dst_size
+class RandomHorizonalFlipPIL:
+    def __init__(self):
+        self.rng = np.random.default_rng()
 
     def __call__(self, data):
-        if self.dst_size != data["image"].size:
-            data["image"] = data["image"].resize(
-                self.dst_size, Image.Resampling.BICUBIC
-            )
-
-            for it in ["dense_label", "weak_label", "pseudo_label"]:
-                if it in data:
-                    label = data[it]
-                    data[it] = [
-                        label[i].resize(self.dst_size, Image.Resampling.NEAREST)
-                        for i in range(len(label))
-                    ]
-
-            # if "invalid_mask" in data:
-            #     data["invalid_mask"] = Image.new("L", data["image"].size, color=0)
-
-            # if "valid_mask" in data:
-            #     data["valid_mask"] = Image.new("L", data["image"].size, color=1)
-
-        return data
-
-
-class RandomHorizonalReflect:
-    def __call__(self, data):
-        if np.random.uniform() < 0.5:
+        if self.rng.uniform(low=0, high=1) < 0.5:
             data["image"] = data["image"].transpose(Image.FLIP_LEFT_RIGHT)
-            for k in ["dense_label", "pseudo_label"]:
+            
+            for k in ["dense_label", "pseudo_label", "weak_label"]:
                 if k in data:
                     label = data[k]
-                    data[k] = [
-                        it.transpose(Image.FLIP_LEFT_RIGHT) for it in label
-                    ]
+                    data[k] = [it.transpose(Image.FLIP_LEFT_RIGHT) for it in label]
+            
+            if "point_label" in data:
+                label = data["point_label"]
+                new_label = {}
+                w, h = data["image"].size
+                for cls_id, joints in label.items():
+                    new_joints = []
+                    for it in joints:
+                        new_joints.append([w - it[0], it[1]])
+                    new_label[cls_id] = new_joints
+                data["point_label"] = new_label
+
+            if "edge_label" in data:
+                data["edge_label"] = data["edge_label"].transpose(Image.FLIP_LEFT_RIGHT)
 
         return data
 
 
 class ConvertPointLabel:
-    def __init__(self, num_class, point_radius=0, ignore_index=255):
+    def __init__(self, num_class, ignore_index=255):
         self.num_class = num_class
-        self.point_radius = point_radius
         self.ignore_index = ignore_index
-
-        assert self.point_radius >= 0
 
     def __call__(self, data):
         image_size = data["image"].size
 
         weak_label = []
-        for i in range(self.num_class):
-            if i in data["point_label"]:
-                joints = data["point_label"][i]
-                label = Image.new("L", image_size, color=self.ignore_index)
-                draw = ImageDraw.Draw(label)
-                for i in range(len(joints)):
-                    if self.point_radius == 0:
-                        draw.point([(joints[i][0], joints[i][1])], fill=1)
-                    else:
-                        draw.ellipse(
-                            [
-                                (
-                                    joints[i][0] - self.point_radius,
-                                    joints[i][1] - self.point_radius,
-                                ),
-                                (
-                                    joints[i][0] + self.point_radius,
-                                    joints[i][1] + self.point_radius,
-                                ),
-                            ],
-                            fill=1,
-                        )
-            else:
-                label = data["invalid_mask"]
-
-            weak_label.append(label)
-
-        data["weak_label"] = weak_label
-
-        return data
-
-
-class GenVisibleInfo:
-    def __init__(self, num_class):
-        self.num_class = num_class
-
-    def __call__(self, data):
         visible_info = []
         for i in range(self.num_class):
             if i in data["point_label"]:
                 visible_info.append(1)
+
+                joints = data["point_label"][i]
+                label = Image.new("L", image_size, color=self.ignore_index)
+                draw = ImageDraw.Draw(label)
+                for i in range(len(joints)):
+                    draw.point([joints[i][0], joints[i][1]], fill=1)
             else:
                 visible_info.append(0)
 
+                label = Image.new("L", image_size, color=0)
+
+            weak_label.append(label)
+
+        data["weak_label"] = weak_label
         data["visible_info"] = visible_info
+
+        return data
+
+
+class GenEdgeLabel:
+    def __init__(self, lower=10, upper=80):
+        self.lower = lower
+        self.upper = upper
+
+    def __call__(self, data):
+        image = np.array(data["image"].copy(), dtype=np.uint8)
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        image = cv2.GaussianBlur(image, (5, 5), 0)
+        
+        edge_label = cv2.Canny(image, self.lower, self.upper)
+        edge_label[edge_label == 255] = 1
+        edge_label = Image.fromarray(edge_label, mode="L")
+        data["edge_label"] = edge_label
 
         return data
 
@@ -338,14 +309,23 @@ class PILToTensor:
                     .contiguous()
                     .float()
                 )
-            elif k in ["dense_label", "weak_label", "pseudo_label", "visible_info"]:
+            elif k in [
+                "dense_label",
+                "weak_label",
+                "pseudo_label",
+                "visible_info",
+                "fg_mask",
+                "bg_mask",
+            ]:
                 label = data[k]
                 data[k] = [
                     torch.from_numpy(np.array(label[i])).long()
                     for i in range(len(label))
                 ]
-            elif k in ["invalid_mask", "valid_mask"]:
-                data[k] = torch.from_numpy(np.array(data[k])).unsqueeze(0).float()
+            elif k in ["invalid_mask"]:
+                data[k] = torch.from_numpy(np.array(data[k])).unsqueeze(0).long()
+            elif k == "edge_label":
+                data[k] = torch.from_numpy(np.array(data[k])).long()
             else:
                 raise ValueError("Not support data's key: {k}")
 
@@ -359,7 +339,7 @@ class ImageNormalizeTensor:
 
     def __call__(self, data):
         assert torch.is_tensor(data["image"])
-        data["orig_image"] = data["image"].clone() / 255.0
+        data["orig_image"] = data["image"].clone()
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data
