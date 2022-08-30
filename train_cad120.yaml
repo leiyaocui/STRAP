@@ -4,15 +4,16 @@ data_dir: "../dataset/cad120/object"
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+class_weight: [0.170589, 0.44999, 0.121701, 0.090404, 0.094336, 0.07298]
 
 dataset_mean: [132.2869, 106.8706, 112.8857]
 dataset_std: [68.9264, 71.0991, 72.8950]
 
-epochs: 100
-batch_size: 4
+epochs: 500
+batch_size: 12
 workers: 10
 
-lr: 0.001
+lr: 0.002
 momentum: 0.9
 weight_decay: 0.0001
 

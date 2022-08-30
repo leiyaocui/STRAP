@@ -80,8 +80,6 @@ class CustomDataset(Dataset):
         if "point" in self.label_level:
             data["point_label"] = self.point_label_list[index]
 
-        data["invalid_mask"] = Image.new("L", data["image"].size, color=0)
-
         return self.transforms(data)
 
     def __len__(self):

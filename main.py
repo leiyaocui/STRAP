@@ -43,6 +43,8 @@ class CerberusMain:
         self.model = DPTAffordanceModel(self.num_class)
 
         if self.mode == "train":
+            self.class_weight = config["class_weight"]
+            self.batch_size = config["batch_size"]
             self.epochs = config["epochs"]
             self.initial_lr = config["lr"]
 
@@ -62,7 +64,7 @@ class CerberusMain:
                 "train_affordance",
                 train_tf,
                 label_level=["dense", "point"],
-                batch_size=config["batch_size"],
+                batch_size=self.batch_size,
                 shuffle=True,
                 num_workers=config["workers"],
                 pin_memory=True,
@@ -144,9 +146,9 @@ class CerberusMain:
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
             if idx < 2:
-                param_group["lr"] = lr / self.num_class
-            elif idx:
                 param_group["lr"] = lr
+            elif idx:
+                param_group["lr"] = lr / self.class_weight[idx-2]
 
     def train(self, epoch):
         self.model.train()
@@ -206,7 +208,8 @@ class CerberusMain:
                 )
 
                 l = l_ce + 0.1 * l_crf
-                # l = l_ce
+                l = l * self.class_weight[i]
+
                 loss.append(l)
             loss = sum(loss)
 
