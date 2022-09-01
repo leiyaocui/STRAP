@@ -29,8 +29,9 @@ def IoU(output, target, num_class, ignore_index=255):
     pred = pred[mask]
     target = target[mask]
 
-    hist = np.bincount(num_class * target + pred,
-                       minlength=num_class**2).reshape(num_class, num_class)
+    hist = np.bincount(num_class * target + pred, minlength=num_class**2).reshape(
+        num_class, num_class
+    )
     ious = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
 
     return ious[1] * 100

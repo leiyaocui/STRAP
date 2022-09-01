@@ -184,4 +184,3 @@ if __name__ == "__main__":
 
     split_dataset(source_path, split_mode)
     gen_dataset(source_path, output_path, split_mode)
-

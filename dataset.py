@@ -76,7 +76,7 @@ class CustomDataset(Dataset):
                     Image.fromarray(pseudo_label[:, :, i], mode="L")
                     for i in range(pseudo_label.shape[2])
                 ]
-        
+
         if "point" in self.label_level:
             data["point_label"] = self.point_label_list[index]
 

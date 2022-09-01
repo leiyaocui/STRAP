@@ -22,31 +22,31 @@ class DPT(nn.Module):
         )
 
         if expand == True:
-            self.scratch.refinenet01 = _make_fusion_block(features,
-                                                          use_bn,
-                                                          expand=False)
-            self.scratch.refinenet02 = _make_fusion_block(features * 2,
-                                                          use_bn,
-                                                          expand=True)
-            self.scratch.refinenet03 = _make_fusion_block(features * 4,
-                                                          use_bn,
-                                                          expand=True)
-            self.scratch.refinenet04 = _make_fusion_block(features * 8,
-                                                          use_bn,
-                                                          expand=True)
+            self.scratch.refinenet01 = _make_fusion_block(
+                features, use_bn, expand=False
+            )
+            self.scratch.refinenet02 = _make_fusion_block(
+                features * 2, use_bn, expand=True
+            )
+            self.scratch.refinenet03 = _make_fusion_block(
+                features * 4, use_bn, expand=True
+            )
+            self.scratch.refinenet04 = _make_fusion_block(
+                features * 8, use_bn, expand=True
+            )
         else:
-            self.scratch.refinenet01 = _make_fusion_block(features,
-                                                          use_bn,
-                                                          expand=False)
-            self.scratch.refinenet02 = _make_fusion_block(features,
-                                                          use_bn,
-                                                          expand=False)
-            self.scratch.refinenet03 = _make_fusion_block(features,
-                                                          use_bn,
-                                                          expand=False)
-            self.scratch.refinenet04 = _make_fusion_block(features,
-                                                          use_bn,
-                                                          expand=False)
+            self.scratch.refinenet01 = _make_fusion_block(
+                features, use_bn, expand=False
+            )
+            self.scratch.refinenet02 = _make_fusion_block(
+                features, use_bn, expand=False
+            )
+            self.scratch.refinenet03 = _make_fusion_block(
+                features, use_bn, expand=False
+            )
+            self.scratch.refinenet04 = _make_fusion_block(
+                features, use_bn, expand=False
+            )
 
 
 class DPTAffordanceModel(DPT):
@@ -80,10 +80,7 @@ class DPTAffordanceModel(DPT):
         output = []
         for i in range(self.num_classes):
             out = self.head_dict[str(i)](path_1)
-            out = F.interpolate(out,
-                                x.shape[-2:],
-                                mode="bilinear",
-                                align_corners=False)
+            out = F.interpolate(out, x.shape[-2:], mode="bilinear", align_corners=False)
             output.append(out)
 
         return output
@@ -134,12 +131,9 @@ class ResidualConvUnit(nn.Module):
 
 
 class FeatureFusionBlock(nn.Module):
-    def __init__(self,
-                 features,
-                 activation,
-                 bn=False,
-                 expand=False,
-                 align_corners=False):
+    def __init__(
+        self, features, activation, bn=False, expand=False, align_corners=False
+    ):
         super(FeatureFusionBlock, self).__init__()
 
         self.align_corners = align_corners
@@ -149,10 +143,7 @@ class FeatureFusionBlock(nn.Module):
         else:
             out_features = features
 
-        self.out_conv = nn.Conv2d(features,
-                                  out_features,
-                                  kernel_size=1,
-                                  bias=True)
+        self.out_conv = nn.Conv2d(features, out_features, kernel_size=1, bias=True)
 
         self.resConfUnit1 = ResidualConvUnit(features, activation, bn)
         self.resConfUnit2 = ResidualConvUnit(features, activation, bn)
@@ -188,10 +179,9 @@ def _make_encoder(
     hooks=None,
 ):
     pretrained = _make_pretrained_vitb_rn50_384(use_pretrained, hooks=hooks)
-    scratch = _make_scratch([256, 512, 768, 768],
-                            features,
-                            groups=groups,
-                            expand=expand)
+    scratch = _make_scratch(
+        [256, 512, 768, 768], features, groups=groups, expand=expand
+    )
 
     return pretrained, scratch
 
@@ -247,11 +237,9 @@ def _make_scratch(in_shape, out_shape, groups=1, expand=False):
 
 
 def _make_fusion_block(features, use_bn, expand=False):
-    return FeatureFusionBlock(features,
-                              nn.ReLU(False),
-                              bn=use_bn,
-                              expand=expand,
-                              align_corners=True)
+    return FeatureFusionBlock(
+        features, nn.ReLU(False), bn=use_bn, expand=expand, align_corners=True
+    )
 
 
 def _make_head(features):

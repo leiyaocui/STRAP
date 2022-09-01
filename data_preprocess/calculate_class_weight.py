@@ -16,7 +16,14 @@ if __name__ == "__main__":
     with open(keypoint_path, "r") as fb:
         keypoint_dict = yaml.safe_load(fb)
 
-    class_list = ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+    class_list = [
+        "openable",
+        "cuttable",
+        "pourable",
+        "containable",
+        "supportable",
+        "holdable",
+    ]
     num_class = len(class_list)
 
     class_hist = np.zeros((num_class), dtype=np.int64)
@@ -29,7 +36,7 @@ if __name__ == "__main__":
     class_hist_ratio = class_hist / len(file_id_list)
     print(f"Class Hist Ratio: {class_hist_ratio.tolist()}")
 
-    class_weight =  1 / class_hist_ratio
+    class_weight = 1 / class_hist_ratio
     class_weight = class_weight / class_weight.sum()
     print(f"Class Weight: {np.round(class_weight, 6).tolist()}")
 

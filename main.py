@@ -20,12 +20,12 @@ class CerberusMain:
         with open(yaml_path, "r") as fb:
             config = yaml.safe_load(fb)
 
-        self.save_dir = os.path.join(config["save_dir"],
-                                     datetime.now().strftime("%Y%m%d_%H%M%S"))
+        self.save_dir = os.path.join(
+            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
-        shutil.copyfile(yaml_path,
-                        os.path.join(self.save_dir, "archive_config.yaml"))
+        shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -43,21 +43,25 @@ class CerberusMain:
         self.model = DPTAffordanceModel(self.num_class)
 
         if self.mode == "train":
-            self.class_weight = config["class_weight"]
             self.batch_size = config["batch_size"]
             self.epochs = config["epochs"]
             self.initial_lr = config["lr"]
 
             self.model = self.model.cuda()
 
-            train_tf = TF.Compose([
-                TF.RandomHorizonalFlipPIL(),
-                TF.ConvertPointLabel(self.num_class,
-                                     ignore_index=self.ignore_index),
-                TF.PILToTensor(),
-                TF.ImageNormalizeTensor(mean=self.dataset_mean,
-                                        std=self.dataset_std),
-            ])
+            train_tf = TF.Compose(
+                [
+                    TF.RandomHorizonalFlipPIL(),
+                    TF.ConvertPointLabel(
+                        self.num_class, ignore_index=self.ignore_index
+                    ),
+                    TF.GenCRFMaskDst(self.num_class),
+                    TF.PILToTensor(),
+                    TF.ImageNormalizeTensor(
+                        mean=self.dataset_mean, std=self.dataset_std
+                    ),
+                ]
+            )
 
             self.train_loader = make_dataloader(
                 self.data_dir,
@@ -72,17 +76,12 @@ class CerberusMain:
             )
 
             params = [
-                {
-                    "params": self.model.pretrained.parameters()
-                },
-                {
-                    "params": self.model.scratch.parameters()
-                },
+                {"params": self.model.pretrained.parameters()},
+                {"params": self.model.scratch.parameters()},
             ]
 
             for i in range(len(self.model.head_dict)):
-                params.append(
-                    {"params": self.model.head_dict[str(i)].parameters()})
+                params.append({"params": self.model.head_dict[str(i)].parameters()})
 
             self.optimizer = torch.optim.SGD(
                 params,
@@ -95,11 +94,12 @@ class CerberusMain:
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.deterministic = True
 
-        val_tf = TF.Compose([
-            TF.PILToTensor(),
-            TF.ImageNormalizeTensor(mean=self.dataset_mean,
-                                    std=self.dataset_std),
-        ])
+        val_tf = TF.Compose(
+            [
+                TF.PILToTensor(),
+                TF.ImageNormalizeTensor(mean=self.dataset_mean, std=self.dataset_std),
+            ]
+        )
 
         self.val_loader = make_dataloader(
             self.data_dir,
@@ -117,14 +117,17 @@ class CerberusMain:
         self.start_epoch = 0
 
         if os.path.isfile(config["resume"]):
-            checkpoint = torch.load(config["resume"],
-                                    map_location=lambda storage, loc: storage)
+            checkpoint = torch.load(
+                config["resume"], map_location=lambda storage, loc: storage
+            )
             self.start_epoch = checkpoint["epoch"]
             self.best_score = checkpoint["best_score"]
-            self.model.load_state_dict({
-                k.replace("module.", ""): v
-                for k, v in checkpoint["state_dict"].items()
-            })
+            self.model.load_state_dict(
+                {
+                    k.replace("module.", ""): v
+                    for k, v in checkpoint["state_dict"].items()
+                }
+            )
 
             print(f"Resume Epoch: {self.start_epoch}")
             print(f"Score: {checkpoint['score']}")
@@ -142,13 +145,13 @@ class CerberusMain:
 
     def adjust_learning_rate(self, epoch):
         # epoch in [0, self.epochs)
-        lr = self.initial_lr * (1 - epoch / self.epochs)**0.9
+        lr = self.initial_lr * (1 - epoch / self.epochs) ** 0.9
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
             if idx < 2:
-                param_group["lr"] = lr
+                param_group["lr"] = lr / self.num_class
             elif idx:
-                param_group["lr"] = lr / self.class_weight[idx-2]
+                param_group["lr"] = lr
 
     def train(self, epoch):
         self.model.train()
@@ -157,16 +160,19 @@ class CerberusMain:
         score_meter = AverageMeter()
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
-        loop = tqdm(self.train_loader,
-                    desc=f"[Train] Epoch {epoch:03d}",
-                    leave=False,
-                    ncols=100)
+        loop = tqdm(
+            self.train_loader, desc=f"[Train] Epoch {epoch:03d}", leave=False, ncols=100
+        )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
-            orig_input = data["orig_image"].cuda(non_blocking=True)
             target = data["weak_label"]
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
+
+            orig_input = data["orig_image"].cuda(non_blocking=True)
+            mask_dst = data["mask_dst"]
+            for i in range(self.num_class):
+                mask_dst[i] = mask_dst[i].cuda(non_blocking=True)
 
             output = self.model(input)
 
@@ -184,8 +190,7 @@ class CerberusMain:
                 )
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
-                    score_per_class_meter[i].update(score_per_class,
-                                                    input.shape[0])
+                    score_per_class_meter[i].update(score_per_class, input.shape[0])
 
             score = np.nanmean(score)
             if not np.isnan(score):
@@ -193,22 +198,22 @@ class CerberusMain:
 
             loss = []
             for i in range(self.num_class):
-                l_ce = bce_loss(output[i],
-                                target[i],
-                                ignore_index=self.ignore_index)
+                l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
                 l_crf = gated_crf_loss(
                     orig_input,
                     output[i],
-                    kernels_desc=[{
-                        'weight': 1,
-                        'xy': 6,
-                        'image': 0.1,
-                    }],
+                    kernels_desc=[
+                        {
+                            "weight": 1,
+                            "xy": 6,
+                            "image": 0.1,
+                        }
+                    ],
                     kernels_radius=5,
+                    mask_dst=mask_dst[i],
                 )
 
                 l = l_ce + 0.1 * l_crf
-                l = l * self.class_weight[i]
 
                 loss.append(l)
             loss = sum(loss)
@@ -220,16 +225,12 @@ class CerberusMain:
             loss_meter.update(loss.item(), input.shape[0])
             loop.set_postfix(loss=loss.item(), score=score)
 
-        self.writer.add_scalar(f"loss_train",
-                               loss_meter.avg,
-                               global_step=epoch)
-        self.writer.add_scalar(f"miou_train",
-                               score_meter.avg,
-                               global_step=epoch)
+        self.writer.add_scalar(f"loss_train", loss_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"miou_train", score_meter.avg, global_step=epoch)
         for i, it in enumerate(self.class_list):
-            self.writer.add_scalar(f"iou_{it}_train",
-                                   score_per_class_meter[i].avg,
-                                   global_step=epoch)
+            self.writer.add_scalar(
+                f"iou_{it}_train", score_per_class_meter[i].avg, global_step=epoch
+            )
 
         return score_meter.avg
 
@@ -240,10 +241,9 @@ class CerberusMain:
         score_meter = AverageMeter()
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
-        loop = tqdm(self.val_loader,
-                    desc=f"[Val] Epoch {epoch:03d}",
-                    leave=False,
-                    ncols=100)
+        loop = tqdm(
+            self.val_loader, desc=f"[Val] Epoch {epoch:03d}", leave=False, ncols=100
+        )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
             target = data["dense_label"]
@@ -258,14 +258,12 @@ class CerberusMain:
 
             score = []
             for i in range(self.num_class):
-                score_per_class = IoU(pred[i],
-                                      target[i],
-                                      num_class=2,
-                                      ignore_index=self.ignore_index)
+                score_per_class = IoU(
+                    pred[i], target[i], num_class=2, ignore_index=self.ignore_index
+                )
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
-                    score_per_class_meter[i].update(score_per_class,
-                                                    input.shape[0])
+                    score_per_class_meter[i].update(score_per_class, input.shape[0])
 
             score = np.nanmean(score)
             if not np.isnan(score):
@@ -275,9 +273,9 @@ class CerberusMain:
 
         self.writer.add_scalar(f"miou_val", score_meter.avg, global_step=epoch)
         for i, it in enumerate(self.class_list):
-            self.writer.add_scalar(f"iou_{it}_val",
-                                   score_per_class_meter[i].avg,
-                                   global_step=epoch)
+            self.writer.add_scalar(
+                f"iou_{it}_val", score_per_class_meter[i].avg, global_step=epoch
+            )
 
         return score_meter.avg
 
@@ -299,8 +297,7 @@ class CerberusMain:
         torch.save(state, checkpoint_path)
 
         if epoch % backup_freq == 0:
-            history_path = os.path.join(save_dir,
-                                        f"checkpoint_{epoch:03d}.pth")
+            history_path = os.path.join(save_dir, f"checkpoint_{epoch:03d}.pth")
             shutil.copyfile(checkpoint_path, history_path)
 
         if is_best:

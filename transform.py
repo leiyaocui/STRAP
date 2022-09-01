@@ -19,9 +19,7 @@ class RandomHorizonalFlipPIL:
             for k in ["dense_label", "pseudo_label", "weak_label"]:
                 if k in data:
                     label = data[k]
-                    data[k] = [
-                        it.transpose(Image.FLIP_LEFT_RIGHT) for it in label
-                    ]
+                    data[k] = [it.transpose(Image.FLIP_LEFT_RIGHT) for it in label]
 
             if "point_label" in data:
                 label = data["point_label"]
@@ -69,6 +67,26 @@ class ConvertPointLabel:
         return data
 
 
+class GenCRFMaskDst:
+    def __init__(self, num_class):
+        self.num_class = num_class
+
+    def __call__(self, data):
+        image_size = data["image"].size
+
+        mask_dst = []
+        for i in range(self.num_class):
+            if i in data["point_label"]:
+                label = Image.new("L", image_size, color=1)
+            else:
+                label = Image.new("L", image_size, color=0)
+            mask_dst.append(label)
+
+        data["mask_dst"] = mask_dst
+
+        return data
+
+
 class PILToTensor:
     def __call__(self, data):
         for k in ["point_label"]:
@@ -79,13 +97,18 @@ class PILToTensor:
             if k in ["file_name"]:
                 continue
             elif k == "image":
-                data[k] = (torch.from_numpy(np.array(data[k])).permute(
-                    2, 0, 1).contiguous().float())
+                data[k] = (
+                    torch.from_numpy(np.array(data[k]))
+                    .permute(2, 0, 1)
+                    .contiguous()
+                    .float()
+                )
             elif k in [
-                    "dense_label",
-                    "weak_label",
-                    "pseudo_label",
-                    "visible_info",
+                "dense_label",
+                "weak_label",
+                "pseudo_label",
+                "visible_info",
+                "mask_dst"
             ]:
                 label = data[k]
                 data[k] = [
@@ -105,7 +128,7 @@ class ImageNormalizeTensor:
 
     def __call__(self, data):
         assert torch.is_tensor(data["image"])
-        data["orig_image"] = data["image"].clone()
+        data["orig_image"] = data["image"].clone() / 255.0
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data

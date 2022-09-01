@@ -194,12 +194,7 @@ def _make_vit_b_rn50_backbone(
     pretrained.model.start_index = start_index
     pretrained.model.patch_size = [16, 16]
 
-    # We inject this function into the VisionTransformer instances so that
-    # we can use it with interpolated position embeddings without modifying the library source.
     pretrained.model.forward_flex = types.MethodType(forward_flex, pretrained.model)
-
-    # We inject this function into the VisionTransformer instances so that
-    # we can use it with interpolated position embeddings without modifying the library source.
     pretrained.model._resize_pos_embed = types.MethodType(
         _resize_pos_embed, pretrained.model
     )
@@ -211,6 +206,8 @@ def _make_pretrained_vitb_rn50_384(pretrained=True, hooks=[0, 1, 8, 11]):
     model = timm.create_model("vit_base_resnet50_384", pretrained=pretrained)
 
     return _make_vit_b_rn50_backbone(
-        model, features=[256, 512, 768, 768], size=[384, 384], hooks=hooks,
+        model,
+        features=[256, 512, 768, 768],
+        size=[384, 384],
+        hooks=hooks,
     )
-

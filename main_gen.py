@@ -19,8 +19,9 @@ from util import IoU, AverageMeter
 
 class GenPseudoLabel:
     def __init__(self, config):
-        self.save_dir = os.path.join(config["save_dir"],
-                                     datetime.now().strftime("%Y%m%d_%H%M%S"))
+        self.save_dir = os.path.join(
+            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
 
@@ -45,12 +46,13 @@ class GenPseudoLabel:
         self.pseudo_label_dir = os.path.join(self.save_dir, "pseudo_label")
         os.makedirs(self.pseudo_label_dir, exist_ok=True)
 
-        train_tf = TF.Compose([
-            TF.RandomHorizonalFlipPIL(),
-            TF.PILToTensor(),
-            TF.ImageNormalizeTensor(mean=self.dataset_mean,
-                                    std=self.dataset_std),
-        ])
+        train_tf = TF.Compose(
+            [
+                TF.RandomHorizonalFlipPIL(),
+                TF.PILToTensor(),
+                TF.ImageNormalizeTensor(mean=self.dataset_mean, std=self.dataset_std),
+            ]
+        )
 
         self.train_loader = make_dataloader(
             self.data_dir,
@@ -66,17 +68,12 @@ class GenPseudoLabel:
         )
 
         params = [
-            {
-                "params": self.model.pretrained.parameters()
-            },
-            {
-                "params": self.model.scratch.parameters()
-            },
+            {"params": self.model.pretrained.parameters()},
+            {"params": self.model.scratch.parameters()},
         ]
 
         for i in range(self.num_class):
-            params.append(
-                {"params": self.model.head_dict[str(i)].parameters()})
+            params.append({"params": self.model.head_dict[str(i)].parameters()})
 
         self.optimizer = torch.optim.SGD(
             params,
@@ -98,7 +95,7 @@ class GenPseudoLabel:
 
     def adjust_learning_rate(self, epoch):
         # epoch in [0, self.epochs)
-        lr = self.initial_lr * (1 - epoch / self.epochs)**0.9
+        lr = self.initial_lr * (1 - epoch / self.epochs) ** 0.9
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
             if idx < 2:
@@ -113,10 +110,9 @@ class GenPseudoLabel:
         score_meter = AverageMeter()
         score_per_class_meter = [AverageMeter() for _ in range(self.num_class)]
 
-        loop = tqdm(self.train_loader,
-                    desc=f"[Train] Epoch {epoch:03d}",
-                    leave=False,
-                    ncols=100)
+        loop = tqdm(
+            self.train_loader, desc=f"[Train] Epoch {epoch:03d}", leave=False, ncols=100
+        )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
             target = data["pseudo_label"]
@@ -145,8 +141,7 @@ class GenPseudoLabel:
                 )
                 score.append(score_per_class)
                 if not np.isnan(score_per_class):
-                    score_per_class_meter[i].update(score_per_class,
-                                                    input.shape[0])
+                    score_per_class_meter[i].update(score_per_class, input.shape[0])
 
             score = np.nanmean(score)
             if not np.isnan(score):
@@ -154,9 +149,7 @@ class GenPseudoLabel:
 
             loss = []
             for i in range(self.num_class):
-                l = bce_loss(output[i],
-                             target[i],
-                             ignore_index=self.ignore_index)
+                l = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
                 loss.append(l)
 
             loss = sum(loss)
@@ -169,16 +162,12 @@ class GenPseudoLabel:
 
             loop.set_postfix(loss=loss.item(), score=score)
 
-        self.writer.add_scalar(f"loss_train",
-                               loss_meter.avg,
-                               global_step=epoch)
-        self.writer.add_scalar(f"miou_train",
-                               score_meter.avg,
-                               global_step=epoch)
+        self.writer.add_scalar(f"loss_train", loss_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"miou_train", score_meter.avg, global_step=epoch)
         for i, it in enumerate(self.class_list):
-            self.writer.add_scalar(f"iou_{it}_train",
-                                   score_per_class_meter[i].avg,
-                                   global_step=epoch)
+            self.writer.add_scalar(
+                f"iou_{it}_train", score_per_class_meter[i].avg, global_step=epoch
+            )
 
         return loss_meter.avg
 
@@ -186,13 +175,13 @@ class GenPseudoLabel:
     def gen_pseudo(self, epoch):
         self.model.eval()
 
-        gen_pseudo_tf = TF.Compose([
-            TF.ConvertPointLabel(self.num_class,
-                                 ignore_index=self.ignore_index),
-            TF.PILToTensor(),
-            TF.ImageNormalizeTensor(mean=self.dataset_mean,
-                                    std=self.dataset_std),
-        ])
+        gen_pseudo_tf = TF.Compose(
+            [
+                TF.ConvertPointLabel(self.num_class, ignore_index=self.ignore_index),
+                TF.PILToTensor(),
+                TF.ImageNormalizeTensor(mean=self.dataset_mean, std=self.dataset_std),
+            ]
+        )
 
         gen_pseudo_loader = make_dataloader(
             self.data_dir,
@@ -207,10 +196,9 @@ class GenPseudoLabel:
             drop_last=False,
         )
 
-        loop = tqdm(gen_pseudo_loader,
-                    desc=f"[Gen] Epoch: {epoch:03d}",
-                    leave=False,
-                    ncols=100)
+        loop = tqdm(
+            gen_pseudo_loader, desc=f"[Gen] Epoch: {epoch:03d}", leave=False, ncols=100
+        )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
             weak_label = data["weak_label"]
@@ -248,8 +236,9 @@ class GenPseudoLabel:
             pred = np.stack(pred, axis=3).astype(np.uint8)
 
             for i in range(pred.shape[0]):
-                save_path = os.path.join(self.pseudo_label_dir,
-                                         data["file_name"][i] + ".pkl")
+                save_path = os.path.join(
+                    self.pseudo_label_dir, data["file_name"][i] + ".pkl"
+                )
                 with open(save_path, "wb") as fb:
                     pickle.dump(pred[i], fb)
 
@@ -273,8 +262,7 @@ class GenPseudoLabel:
         torch.save(state, checkpoint_path)
 
         if epoch % backup_freq == 0:
-            history_path = os.path.join(save_dir,
-                                        f"checkpoint_{epoch:03d}.pth")
+            history_path = os.path.join(save_dir, f"checkpoint_{epoch:03d}.pth")
             shutil.copyfile(checkpoint_path, history_path)
 
         if is_best:
@@ -284,10 +272,8 @@ class GenPseudoLabel:
 
 if __name__ == "__main__":
     config = {
-        "save_dir":
-        "output",
-        "data_dir":
-        "../dataset/cad120/object",
+        "save_dir": "output",
+        "data_dir": "../dataset/cad120/object",
         "affordance": [
             "openable",
             "cuttable",
@@ -298,14 +284,10 @@ if __name__ == "__main__":
         ],
         "dataset_mean": [132.47758921, 106.32022472, 111.57047992],
         "dataset_std": [67.45043020, 70.23484331, 72.19806953],
-        "epochs":
-        200,
-        "lr":
-        0.001,
-        "momentum":
-        0.9,
-        "weight_decay":
-        0.0001,
+        "epochs": 200,
+        "lr": 0.001,
+        "momentum": 0.9,
+        "weight_decay": 0.0001,
     }
     main = GenPseudoLabel(config)
     main.exec()
