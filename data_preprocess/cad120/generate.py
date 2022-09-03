@@ -27,13 +27,13 @@ def get_keypoint(keypoints, visible_info, file_id, num_classes):
         coords = np.flip(
             coords, axis=1
         )  # because the shape style of pillow is (w, h, c).
-        coords = coords * (320.0 / 321.0)
-        coords = np.round(coords, decimals=0).astype(np.int32) - 1
-        if np.any(coords < 0) or np.any(coords >= 320):
-            print("==== Error ====")
-            print(image_id)
-            print(coords)
-            exit(-1)
+        coords = coords / 321.0 * 320.0 - 1
+        coords = np.round(coords, decimals=0).astype(np.int32)
+        # if np.any(coords < 0) or np.any(coords >= 320):
+        #     print("==== Error ====")
+        #     print(image_id)
+        #     print(coords)
+        #     exit(-1)
         keypoint_dict[i] = coords.tolist()
 
     return keypoint_dict
@@ -75,6 +75,33 @@ def split_dataset(cad120_path, split_mode):
         file_id = it.split(".")[0]
         fb.write(file_id + "\n")
     fb.close()
+
+
+def gen_keypoint_list(cad120_path, save_path, split_mode):
+    os.makedirs(save_path, exist_ok=True)
+
+    visible_info_dict = dict()
+    fb = open(os.path.join(cad120_path, "visible_affordance_info.txt"), "r")
+    for line in fb:
+        line = line.strip().split(" ")
+        file_id = line[0].split(".")[0]
+        visible_info_dict[file_id] = np.array(line[1:], dtype=np.uint8).tolist()
+    fb.close()
+
+    keypoints = np.loadtxt("keypoints.txt", delimiter=",")
+    keypoint_dict = dict()
+
+    for line in tqdm(open(f"train_{split_mode}_split_id.txt", "r"), ncols=80):
+        file_id = line.strip()
+
+        visible_info = visible_info_dict[file_id]
+        keypoint_dict[file_id] = get_keypoint(
+            keypoints, visible_info, file_id, num_classes=6
+        )
+
+    yaml_path = os.path.join(save_path, "train_affordance_keypoint.yaml")
+    with open(yaml_path, "w") as fb:
+        yaml.safe_dump(keypoint_dict, fb)
 
 
 def gen_dataset(cad120_path, save_path, split_mode):
@@ -192,4 +219,5 @@ if __name__ == "__main__":
     output_path = os.path.join("../../../dataset/cad120", split_mode)
 
     split_dataset(source_path, split_mode)
-    gen_dataset(source_path, output_path, split_mode)
+    gen_keypoint_list(source_path, output_path, split_mode)
+    # gen_dataset(source_path, output_path, split_mode)

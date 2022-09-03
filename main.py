@@ -207,9 +207,7 @@ class CerberusMain:
                     ],
                     kernels_radius=5,
                 )
-
                 l = l_ce + 0.1 * l_crf
-
                 loss.append(l)
             loss = sum(loss)
 
