@@ -55,7 +55,6 @@ class CerberusMain:
                     TF.ConvertPointLabel(
                         self.num_class, ignore_index=self.ignore_index
                     ),
-                    TF.GenCRFMaskDst(self.num_class),
                     TF.PILToTensor(),
                     TF.ImageNormalizeTensor(
                         mean=self.dataset_mean, std=self.dataset_std
@@ -170,9 +169,6 @@ class CerberusMain:
                 target[i] = target[i].cuda(non_blocking=True)
 
             orig_input = data["orig_image"].cuda(non_blocking=True)
-            mask_dst = data["mask_dst"]
-            for i in range(self.num_class):
-                mask_dst[i] = mask_dst[i].cuda(non_blocking=True)
 
             output = self.model(input)
 
@@ -206,11 +202,10 @@ class CerberusMain:
                         {
                             "weight": 1,
                             "xy": 6,
-                            "image": 0.1,
+                            "image": 0.001,
                         }
                     ],
                     kernels_radius=5,
-                    mask_dst=mask_dst[i],
                 )
 
                 l = l_ce + 0.1 * l_crf

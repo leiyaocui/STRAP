@@ -24,7 +24,16 @@ def get_keypoint(keypoints, visible_info, file_id, num_classes):
             & (keypoints[:, 2].astype(np.int32) == i + 1)
         )
         coords = keypoints[mask][:, 3:].reshape(-1, 2)
-        coords = np.flip(coords, axis=1)
+        coords = np.flip(
+            coords, axis=1
+        )  # because the shape style of pillow is (w, h, c).
+        coords = coords * (320.0 / 321.0)
+        coords = np.round(coords, decimals=0).astype(np.int32) - 1
+        if np.any(coords < 0) or np.any(coords >= 320):
+            print("==== Error ====")
+            print(image_id)
+            print(coords)
+            exit(-1)
         keypoint_dict[i] = coords.tolist()
 
     return keypoint_dict
@@ -74,8 +83,8 @@ def gen_dataset(cad120_path, save_path, split_mode):
 
     os.makedirs(save_path, exist_ok=True)
 
-    images_path = os.path.join(save_path, "affordance", "images")
-    labels_path = os.path.join(save_path, "affordance", "labels")
+    images_path = os.path.join(save_path, "images")
+    labels_path = os.path.join(save_path, "labels")
     os.makedirs(images_path, exist_ok=True)
     os.makedirs(labels_path, exist_ok=True)
 

@@ -2,9 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def gated_crf_loss(
-    x, y_hat, kernels_desc, kernels_radius, mask_src=None, mask_dst=None
-):
+def gated_crf_loss(x, y, kernels_desc, kernels_radius, mask_src=None, mask_dst=None):
     """
     :param kernels_desc: A list of dictionaries, each describing one Gaussian kernel composition from modalities.
         The final kernel is a weighted sum of individual kernels. Following example is a composition of
@@ -19,13 +17,12 @@ def gated_crf_loss(
         }]
     :param kernels_radius: Defines size of bounding box region around each pixel in which the kernel is constructed.
     """
-    N, C, H, W = y_hat.shape
-    device = y_hat.device
+    N, C, H, W = y.shape
+    device = y.device
 
     kernels_diameter = 2 * kernels_radius + 1
 
-    y_hat = y_hat.sigmoid()
-    # y_hat = (y_hat > 0).float()
+    y_hat = y.sigmoid()
     y_hat = torch.cat([1 - y_hat, y_hat], dim=1)
     C = 2
 
@@ -73,15 +70,15 @@ def gated_crf_loss(
     if mask_src is not None:
         denom = min(mask_src.sum().clamp(min=1), denom)
         n, c, h, w = mask_src.shape
-        mask_src = F.unfold(mask_src, kernels_diameter, padding=kernels_radius).view(
-            n, c, kernels_diameter, kernels_diameter, h, w
-        )
-        kernels *= mask_src
+        mask_src_unfolded = F.unfold(
+            mask_src, kernels_diameter, padding=kernels_radius
+        ).view(n, c, kernels_diameter, kernels_diameter, h, w)
+        kernels *= mask_src_unfolded
 
     if mask_dst is not None:
         denom = min(mask_dst.sum().clamp(min=1), denom)
-        mask_dst = mask_dst.view(N, 1, 1, 1, H, W)
-        kernels *= mask_dst
+        mask_dst_unfolded = mask_dst.view(N, 1, 1, 1, H, W)
+        kernels *= mask_dst_unfolded
 
     y_hat_unfolded = F.unfold(y_hat, kernels_diameter, padding=kernels_radius).view(
         N, C, kernels_diameter, kernels_diameter, H, W
@@ -91,14 +88,8 @@ def gated_crf_loss(
         (kernels * y_hat_unfolded).view(N, C, kernels_diameter**2, H, W).sum(dim=2)
     )
 
-    # loss = -(product_kernels_y_hat * y_hat).sum()
-    # loss = kernels.sum() + loss
-    # loss /= denom
-
-    loss = kernels.view(N, 1, kernels_diameter**2, H, W).sum(dim=2) - (
-        product_kernels_y_hat * y_hat
-    ).sum(dim=1)
-    loss = loss.sum() / denom
+    loss = kernels.sum() - (product_kernels_y_hat * y_hat).sum()
+    loss /= denom
 
     return loss
 

@@ -108,7 +108,7 @@ class PILToTensor:
                 "weak_label",
                 "pseudo_label",
                 "visible_info",
-                "mask_dst"
+                "mask_dst",
             ]:
                 label = data[k]
                 data[k] = [
@@ -128,7 +128,7 @@ class ImageNormalizeTensor:
 
     def __call__(self, data):
         assert torch.is_tensor(data["image"])
-        data["orig_image"] = data["image"].clone() / 255.0
+        data["orig_image"] = data["image"].clone()
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data
