@@ -27,13 +27,17 @@ def get_keypoint(keypoints, visible_info, file_id, num_classes):
         coords = np.flip(
             coords, axis=1
         )  # because the shape style of pillow is (w, h, c).
-        coords = coords / 321.0 * 320.0 - 1
+        coords = coords - 1
         coords = np.round(coords, decimals=0).astype(np.int32)
-        # if np.any(coords < 0) or np.any(coords >= 320):
-        #     print("==== Error ====")
-        #     print(image_id)
-        #     print(coords)
-        #     exit(-1)
+        
+        del_coords = np.argwhere(coords >= 320)
+        if del_coords.size > 0:
+            print()
+            for it in del_coords:
+                print(coords)
+                coords[it[0], it[1]] -= 1
+                print(coords)
+        
         keypoint_dict[i] = coords.tolist()
 
     return keypoint_dict
@@ -105,26 +109,12 @@ def gen_keypoint_list(cad120_path, save_path, split_mode):
 
 
 def gen_dataset(cad120_path, save_path, split_mode):
-    if os.path.exists(save_path):
-        shutil.rmtree(save_path)
-
     os.makedirs(save_path, exist_ok=True)
 
     images_path = os.path.join(save_path, "images")
     labels_path = os.path.join(save_path, "labels")
     os.makedirs(images_path, exist_ok=True)
     os.makedirs(labels_path, exist_ok=True)
-
-    visible_info_dict = dict()
-    fb = open(os.path.join(cad120_path, "visible_affordance_info.txt"), "r")
-    for line in fb:
-        line = line.strip().split(" ")
-        file_id = line[0].split(".")[0]
-        visible_info_dict[file_id] = np.array(line[1:], dtype=np.uint8).tolist()
-    fb.close()
-
-    keypoints = np.loadtxt("keypoints.txt", delimiter=",")
-    keypoint_dict = dict()
 
     fb = open(os.path.join(save_path, "train_affordance.txt"), "w")
     for line in tqdm(open(f"train_{split_mode}_split_id.txt", "r"), ncols=80):
@@ -133,11 +123,7 @@ def gen_dataset(cad120_path, save_path, split_mode):
         image_path = os.path.join(cad120_path, "object_crop_images", f"{file_id}.png")
         image_save_path = os.path.join(images_path, f"{file_id}.png")
 
-        image = (
-            Image.open(image_path)
-            .convert("RGB")
-            .resize((320, 320), Image.Resampling.LANCZOS)
-        )
+        image = Image.open(image_path).convert("RGB").crop((0, 0, 320, 320))
         image.save(image_save_path)
 
         label_path = os.path.join(
@@ -147,19 +133,12 @@ def gen_dataset(cad120_path, save_path, split_mode):
 
         label = loadmat(label_path)["data"].astype(np.uint8)
         label = [
-            Image.fromarray(label[:, :, i], mode="L").resize(
-                (320, 320), Image.Resampling.NEAREST
-            )
+            Image.fromarray(label[:, :, i], mode="L").crop((0, 0, 320, 320))
             for i in range(label.shape[2])
         ]
         label = np.stack(label, axis=2)
         with open(label_save_path, "wb") as f:
             pickle.dump(label, f)
-
-        visible_info = visible_info_dict[file_id]
-        keypoint_dict[file_id] = get_keypoint(
-            keypoints, visible_info, file_id, num_classes=6
-        )
 
         fb.write(
             os.path.relpath(image_save_path, save_path)
@@ -169,9 +148,6 @@ def gen_dataset(cad120_path, save_path, split_mode):
         )
     fb.close()
 
-    with open(os.path.join(save_path, "train_affordance_keypoint.yaml"), "w") as fb:
-        yaml.safe_dump(keypoint_dict, fb)
-
     fb = open(os.path.join(save_path, "val_affordance.txt"), "w")
     for line in tqdm(open(f"test_{split_mode}_split_id.txt", "r"), ncols=80):
         file_id = line.strip()
@@ -179,11 +155,7 @@ def gen_dataset(cad120_path, save_path, split_mode):
         image_path = os.path.join(cad120_path, "object_crop_images", f"{file_id}.png")
         image_save_path = os.path.join(images_path, f"{file_id}.png")
 
-        image = (
-            Image.open(image_path)
-            .convert("RGB")
-            .resize((320, 320), Image.Resampling.LANCZOS)
-        )
+        image = Image.open(image_path).convert("RGB").crop((0, 0, 320, 320))
         image.save(image_save_path)
 
         label_path = os.path.join(
@@ -193,9 +165,7 @@ def gen_dataset(cad120_path, save_path, split_mode):
 
         label = loadmat(label_path)["data"].astype(np.uint8)
         label = [
-            Image.fromarray(label[:, :, i], mode="L").resize(
-                (320, 320), Image.Resampling.NEAREST
-            )
+            Image.fromarray(label[:, :, i], mode="L").crop((0, 0, 320, 320))
             for i in range(label.shape[2])
         ]
         label = np.stack(label, axis=2)
@@ -218,6 +188,9 @@ if __name__ == "__main__":
     source_path = "../../../dataset/CAD120"
     output_path = os.path.join("../../../dataset/cad120", split_mode)
 
+    # if os.path.exists(output_path):
+    #     shutil.rmtree(output_path)
+
     split_dataset(source_path, split_mode)
+    gen_dataset(source_path, output_path, split_mode)
     gen_keypoint_list(source_path, output_path, split_mode)
-    # gen_dataset(source_path, output_path, split_mode)

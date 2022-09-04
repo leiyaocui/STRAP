@@ -28,7 +28,7 @@ class RandomHorizonalFlipPIL:
                 for cls_id, joints in label.items():
                     new_joints = []
                     for it in joints:
-                        new_joints.append([w - it[0], it[1]])
+                        new_joints.append([w - 1 - it[0], it[1]])
                     new_label[cls_id] = new_joints
                 data["point_label"] = new_label
 
