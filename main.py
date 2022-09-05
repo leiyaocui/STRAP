@@ -195,14 +195,20 @@ class CerberusMain:
             loss = []
             for i in range(self.num_class):
                 l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
+                loss.append(l_ce)
+            loss = sum(loss)
+
+            loss = []
+            for i in range(self.num_class):
+                l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
                 l_crf = gated_crf_loss(
-                    orig_input,
+                    input,
                     output[i],
                     kernels_desc=[
                         {
                             "weight": 1,
                             "xy": 6,
-                            "image": 0.001,
+                            "image": 0.1,
                         }
                     ],
                     kernels_radius=5,

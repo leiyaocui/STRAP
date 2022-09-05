@@ -2,7 +2,6 @@ import os
 import numpy as np
 from scipy.io import loadmat
 import pickle
-import shutil
 from tqdm import tqdm
 import yaml
 from glob import glob
@@ -28,17 +27,17 @@ def get_keypoint(keypoints, visible_info, file_id, num_classes):
             coords, axis=1
         )  # because the shape style of pillow is (w, h, c).
         coords = coords - 1
-        coords = np.round(coords, decimals=0).astype(np.int32)
+        new_coords = np.round(coords, decimals=0).astype(np.int32)
         
-        del_coords = np.argwhere(coords >= 320)
+        del_coords = np.argwhere(new_coords >= 320)
         if del_coords.size > 0:
             print()
             for it in del_coords:
-                print(coords)
-                coords[it[0], it[1]] -= 1
-                print(coords)
+                print(new_coords)
+                new_coords[it[0], it[1]] -= 1
+                print(new_coords)
         
-        keypoint_dict[i] = coords.tolist()
+        keypoint_dict[i] = np.array(new_coords).tolist()
 
     return keypoint_dict
 
@@ -192,5 +191,5 @@ if __name__ == "__main__":
     #     shutil.rmtree(output_path)
 
     split_dataset(source_path, split_mode)
-    gen_dataset(source_path, output_path, split_mode)
+    # gen_dataset(source_path, output_path, split_mode)
     gen_keypoint_list(source_path, output_path, split_mode)

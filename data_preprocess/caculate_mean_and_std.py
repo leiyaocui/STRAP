@@ -35,5 +35,5 @@ if __name__ == "__main__":
     c_std = np.sqrt(c_sum / c_num)
     print(f"Std(RGB order): [{c_std[0]}, {c_std[1]}, {c_std[2]}]")
 
-# dataset_mean: [132.2869, 106.8706, 112.8857]
-# dataset_std: [68.9264, 71.0991, 72.8950]
+# dataset_mean: [132.2723, 106.8666, 112.8962]
+# dataset_std: [68.9081, 71.0827, 72.8808]

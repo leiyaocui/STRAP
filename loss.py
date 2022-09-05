@@ -17,14 +17,14 @@ def gated_crf_loss(x, y, kernels_desc, kernels_radius, mask_src=None, mask_dst=N
         }]
     :param kernels_radius: Defines size of bounding box region around each pixel in which the kernel is constructed.
     """
-    N, C, H, W = y.shape
-    device = y.device
-
     kernels_diameter = 2 * kernels_radius + 1
+
+    N, _, H, W = y.shape
+    device = y.device
 
     y_hat = y.sigmoid()
     y_hat = torch.cat([1 - y_hat, y_hat], dim=1)
-    C = 2
+    C = y_hat.shape[1]
 
     kernels = 0.0
     for desc in kernels_desc:
@@ -88,7 +88,8 @@ def gated_crf_loss(x, y, kernels_desc, kernels_radius, mask_src=None, mask_dst=N
         (kernels * y_hat_unfolded).view(N, C, kernels_diameter**2, H, W).sum(dim=2)
     )
 
-    loss = kernels.sum() - (product_kernels_y_hat * y_hat).sum()
+    loss = -(product_kernels_y_hat * y_hat).sum()
+    loss = kernels.sum() + loss
     loss /= denom
 
     return loss

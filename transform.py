@@ -35,6 +35,33 @@ class RandomHorizonalFlipPIL:
         return data
 
 
+class RandomVerticalFlipPIL:
+    def __init__(self):
+        self.rng = np.random.default_rng()
+
+    def __call__(self, data):
+        if self.rng.uniform(low=0, high=1) < 0.5:
+            data["image"] = data["image"].transpose(Image.FLIP_TOP_BOTTOM)
+
+            for k in ["dense_label", "pseudo_label", "weak_label"]:
+                if k in data:
+                    label = data[k]
+                    data[k] = [it.transpose(Image.FLIP_TOP_BOTTOM) for it in label]
+
+            if "point_label" in data:
+                label = data["point_label"]
+                new_label = {}
+                w, h = data["image"].size
+                for cls_id, joints in label.items():
+                    new_joints = []
+                    for it in joints:
+                        new_joints.append([it[0], h - 1 - it[1]])
+                    new_label[cls_id] = new_joints
+                data["point_label"] = new_label
+
+        return data
+
+
 class ConvertPointLabel:
     def __init__(self, num_class, ignore_index=255):
         self.num_class = num_class
