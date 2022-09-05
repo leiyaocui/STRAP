@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from numpy.random import default_rng
 import yaml
 import shutil
 from tqdm import tqdm
@@ -13,7 +14,7 @@ from dataset import make_dataloader
 import transform as TF
 from model import DPTAffordanceModel
 
-from loss import bce_loss
+from loss import bce_loss, gated_crf_loss
 from util import IoU, AverageMeter
 
 
@@ -91,6 +92,25 @@ class GenPseudoLabel:
             drop_last=False,
         )
 
+        val_tf = TF.Compose(
+            [
+                TF.PILToTensor(),
+                TF.ImageNormalizeTensor(mean=self.dataset_mean, std=self.dataset_std),
+            ]
+        )
+
+        self.val_loader = make_dataloader(
+            self.data_dir,
+            "val_affordance",
+            val_tf,
+            label_level=["dense"],
+            batch_size=1,
+            shuffle=False,
+            num_workers=config["workers"],
+            pin_memory=True,
+            drop_last=False,
+        )
+
         params = [
             {"params": self.model.pretrained.parameters()},
             {"params": self.model.scratch.parameters()},
@@ -120,13 +140,14 @@ class GenPseudoLabel:
         torch.backends.cudnn.deterministic = True
 
     def exec(self):
+        self.gen_pseudo(epoch, mode=1)
         for epoch in range(1, self.epochs + 1):
             self.adjust_learning_rate(epoch - 1)
-            if epoch % 20 == 1:
-                if epoch < 20:
-                    self.gen_pseudo(epoch, mode=1)
-                else:
-                    self.gen_pseudo(epoch, mode=2)
+            # if epoch % 10 == 1:
+            #     if epoch < 30:
+            #         self.gen_pseudo(epoch, mode=1)
+            #     else:
+            #         self.gen_pseudo(epoch, mode=2)
 
             self.train(epoch)
             score = self.validate(epoch)
@@ -182,9 +203,21 @@ class GenPseudoLabel:
 
             loss = []
             for i in range(self.num_class):
-                l = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
+                l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
+                l_crf = gated_crf_loss(
+                    input,
+                    output[i],
+                    kernels_desc=[
+                        {
+                            "weight": 1,
+                            "xy": 6,
+                            "image": 0.1,
+                        }
+                    ],
+                    kernels_radius=5,
+                )
+                l = l_ce + 0.1 * l_crf
                 loss.append(l)
-
             loss = sum(loss)
 
             self.optimizer.zero_grad()
@@ -252,6 +285,9 @@ class GenPseudoLabel:
     def gen_pseudo(self, epoch, mode=0):
         self.model.eval()
 
+        rng = default_rng()
+        rnd_p = [epoch / self.epochs, 1 - epoch / self.epochs]
+
         loop = tqdm(
             self.gen_pseudo_loader,
             desc=f"[Gen] Epoch: {epoch:03d}",
@@ -275,9 +311,10 @@ class GenPseudoLabel:
                 pred_list = []
                 for i in range(self.num_class):
                     label = weak_label[i]
-                    out = output[i]
-                    pred = (out > -8).int().squeeze(1).cpu().numpy()
+                    out = output[i].squeeze(1).cpu().numpy()
+                    pred = (out > -8).astype(np.uint8)
 
+                    rnd_mask_list = []
                     fg_mask_list = []
                     for b in range(label.shape[0]):
                         keypoints = np.argwhere(label[b] == 1)
@@ -289,10 +326,15 @@ class GenPseudoLabel:
                         else:
                             fg_mask = np.ones(label[b].shape, dtype=np.uint8)
                         fg_mask_list.append(fg_mask)
+
+                        rnd_mask = rng.choice([0, 1], size=label[b].shape, p=rnd_p)
+                        rnd_mask_list.append(rnd_mask)
                     fg_mask = np.stack(fg_mask_list, axis=0)
+                    rnd_mask = np.stack(rnd_mask_list, axis=0)
 
                     p = np.zeros(label.shape)
                     p[fg_mask == 1] = self.ignore_index
+                    p[rnd_mask == 1] = self.ignore_index
                     p[label == 1] = 1
                     p = p * visible_info[i]
 
@@ -303,9 +345,10 @@ class GenPseudoLabel:
                 pred_list = []
                 for i in range(self.num_class):
                     label = weak_label[i]
-                    out = output[i]
-                    pred = (out > 0).int().squeeze(1).cpu().numpy()
+                    out = output[i].squeeze(1).cpu().numpy()
+                    pred = (out > 0).astype(np.uint8)
 
+                    rnd_mask_list = []
                     fg_mask_list = []
                     for b in range(label.shape[0]):
                         keypoints = np.argwhere(label[b] == 1)
@@ -317,11 +360,15 @@ class GenPseudoLabel:
                         else:
                             fg_mask = np.ones(label[b].shape, dtype=np.uint8)
                         fg_mask_list.append(fg_mask)
+                        rnd_mask = rng.choice([0, 1], size=label[b].shape, p=rnd_p)
+                        rnd_mask_list.append(rnd_mask)
                     fg_mask = np.stack(fg_mask_list, axis=0)
+                    rnd_mask = np.stack(rnd_mask_list, axis=0)
 
                     p = np.full(label.shape, self.ignore_index)
                     p[out < -8] = 0
                     p[(fg_mask == 1) & (out > 8)] = 1
+                    p[rnd_mask == 1] = self.ignore_index
                     p[label == 1] = 1
                     p = p * visible_info[i]
 
