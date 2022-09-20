@@ -9,9 +9,8 @@ from PIL import Image
 
 
 def get_keypoint(keypoints, visible_info, file_id, num_classes):
-    assert len(file_id) == 7
     image_id = int(file_id[1:5])
-    bb_id = int(file_id[6])
+    bb_id = int(file_id[6:])
 
     keypoint_dict = {}
     for i in range(num_classes):
@@ -183,7 +182,7 @@ def gen_dataset(cad120_path, save_path, split_mode):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
-    split_mode = "object"
+    split_mode = "actor"
     source_path = "../../../dataset/CAD120"
     output_path = os.path.join("../../../dataset/cad120", split_mode)
 

@@ -1,0 +1,21 @@
+mode: "train"
+
+data_dir: "../dataset/cad120/object"
+
+affordance:
+  ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+
+dataset_mean: [132.2723, 106.8666, 112.8962]
+dataset_std: [68.9081, 71.0827, 72.8808]
+
+epochs: 100
+batch_size: 4
+workers: 10
+
+lr: 0.001
+momentum: 0.9
+weight_decay: 0.0001
+
+save_dir: "output"
+
+resume: ""

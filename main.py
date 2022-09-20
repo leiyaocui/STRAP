@@ -26,6 +26,7 @@ class CerberusMain:
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
         shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
+        shutil.copyfile("main.py", os.path.join(self.save_dir, "archive_main.py"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -115,22 +116,22 @@ class CerberusMain:
         self.best_score = -1
         self.start_epoch = 0
 
-        if os.path.isfile(config["resume"]):
-            checkpoint = torch.load(
-                config["resume"], map_location=lambda storage, loc: storage
-            )
-            self.start_epoch = checkpoint["epoch"]
-            self.best_score = checkpoint["best_score"]
-            self.model.load_state_dict(
-                {
-                    k.replace("module.", ""): v
-                    for k, v in checkpoint["state_dict"].items()
-                }
-            )
+        # if os.path.isfile(config["resume"]):
+        #     checkpoint = torch.load(
+        #         config["resume"], map_location=lambda storage, loc: storage
+        #     )
+        #     self.start_epoch = checkpoint["epoch"]
+        #     self.best_score = checkpoint["best_score"]
+        #     self.model.load_state_dict(
+        #         {
+        #             k.replace("module.", ""): v
+        #             for k, v in checkpoint["state_dict"].items()
+        #         }
+        #     )
 
-            print(f"Resume Epoch: {self.start_epoch}")
-            print(f"Score: {checkpoint['score']}")
-            print(f"Best Score: {self.best_score}")
+        #     print(f"Resume Epoch: {self.start_epoch}")
+        #     print(f"Score: {checkpoint['score']}")
+        #     print(f"Best Score: {self.best_score}")
 
     def exec(self):
         if self.mode == "train":
@@ -168,8 +169,6 @@ class CerberusMain:
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
 
-            orig_input = data["orig_image"].cuda(non_blocking=True)
-
             output = self.model(input)
 
             pred = []
@@ -201,19 +200,19 @@ class CerberusMain:
             loss = []
             for i in range(self.num_class):
                 l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
-                l_crf = gated_crf_loss(
+                l_crf = 0.1 * gated_crf_loss(
                     input,
                     output[i],
                     kernels_desc=[
                         {
                             "weight": 1,
-                            "xy": 6,
-                            "image": 0.1,
+                            "xy": 20,
+                            "image": 0.01,
                         }
                     ],
-                    kernels_radius=5,
+                    kernels_radius=3,
                 )
-                l = l_ce + 0.1 * l_crf
+                l = l_ce + l_crf
                 loss.append(l)
             loss = sum(loss)
 

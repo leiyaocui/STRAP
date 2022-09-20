@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 
 if __name__ == "__main__":
-    dataset_path = "../dataset/cad120/object"
+    dataset_path = "../dataset/cad120/actor"
     fb = open(os.path.join(dataset_path, "train_affordance.txt"), "r")
     image_path_list = []
     for line in fb:
@@ -34,6 +34,3 @@ if __name__ == "__main__":
 
     c_std = np.sqrt(c_sum / c_num)
     print(f"Std(RGB order): [{c_std[0]}, {c_std[1]}, {c_std[2]}]")
-
-# dataset_mean: [132.2723, 106.8666, 112.8962]
-# dataset_std: [68.9081, 71.0827, 72.8808]

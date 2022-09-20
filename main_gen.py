@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from numpy.random import default_rng
 import yaml
 import shutil
 from tqdm import tqdm
@@ -8,7 +7,9 @@ from datetime import datetime
 import pickle
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from skimage.segmentation import flood
+import skimage.segmentation
+import skimage.draw
+import skimage.morphology
 
 from dataset import make_dataloader
 import transform as TF
@@ -28,6 +29,8 @@ class GenPseudoLabel:
         )
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
+        shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
+        shutil.copyfile("main_gen.py", os.path.join(self.save_dir, "archive_main_gen.py"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -140,21 +143,17 @@ class GenPseudoLabel:
         torch.backends.cudnn.deterministic = True
 
     def exec(self):
-        self.gen_pseudo(epoch, mode=1)
+        P = 10
         for epoch in range(1, self.epochs + 1):
-            self.adjust_learning_rate(epoch - 1)
-            # if epoch % 10 == 1:
-            #     if epoch < 30:
-            #         self.gen_pseudo(epoch, mode=1)
-            #     else:
-            #         self.gen_pseudo(epoch, mode=2)
+            self.adjust_learning_rate((epoch - 1) % P)
+            if epoch % P == 1:
+                self.gen_pseudo(epoch)
 
             self.train(epoch)
             score = self.validate(epoch)
             self.save_checkpoint(epoch, score)
 
     def adjust_learning_rate(self, epoch):
-        # epoch in [0, self.epochs)
         lr = self.initial_lr * (1 - epoch / self.epochs) ** 0.9
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
@@ -204,14 +203,15 @@ class GenPseudoLabel:
             loss = []
             for i in range(self.num_class):
                 l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
+                # l = l_ce
                 l_crf = gated_crf_loss(
                     input,
                     output[i],
                     kernels_desc=[
                         {
                             "weight": 1,
-                            "xy": 6,
-                            "image": 0.1,
+                            "xy": 20,
+                            "image": 0.01,
                         }
                     ],
                     kernels_radius=5,
@@ -282,11 +282,11 @@ class GenPseudoLabel:
         return score_meter.avg
 
     @torch.no_grad()
-    def gen_pseudo(self, epoch, mode=0):
+    def gen_pseudo(self, epoch):
         self.model.eval()
 
-        rng = default_rng()
-        rnd_p = [epoch / self.epochs, 1 - epoch / self.epochs]
+        radius = np.ceil(epoch / self.epochs * 320)
+        threshold = 8 * (1 - epoch / self.epochs)
 
         loop = tqdm(
             self.gen_pseudo_loader,
@@ -304,79 +304,48 @@ class GenPseudoLabel:
 
             output = self.model(input)
 
-            if mode == 0:
-                pred = np.stack(data["weak_label"], axis=1)
-                pred = pred.transpose(1, 0, 2, 3)
-            elif mode == 1:
-                pred_list = []
-                for i in range(self.num_class):
-                    label = weak_label[i]
-                    out = output[i].squeeze(1).cpu().numpy()
-                    pred = (out > -8).astype(np.uint8)
+            pred_list = []
+            for i in range(self.num_class):
+                label = weak_label[i]
+                out = output[i].squeeze(1).cpu().numpy()
+                pred = (out > 0).astype(np.uint8)
 
-                    rnd_mask_list = []
-                    fg_mask_list = []
-                    for b in range(label.shape[0]):
-                        keypoints = np.argwhere(label[b] == 1)
-                        if len(keypoints) > 0:
-                            fg_mask = np.zeros(label[b].shape, dtype=np.uint8)
-                            for it in keypoints:
-                                mask = flood(pred[b], tuple(it), connectivity=1)
-                                fg_mask[mask] = 1
-                        else:
-                            fg_mask = np.ones(label[b].shape, dtype=np.uint8)
-                        fg_mask_list.append(fg_mask)
+                fg_mask_list = []
+                disk_mask_list = []
+                for b in range(label.shape[0]):
+                    keypoints = np.argwhere(label[b] == 1)
+                    if len(keypoints) > 0:
+                        fg_mask = np.zeros(label[b].shape, dtype=np.uint8)
+                        disk_mask = np.zeros(label[b].shape, dtype=np.uint8)
+                        for it in keypoints:
+                            mask = skimage.segmentation.flood(
+                                pred[b], tuple(it), connectivity=1
+                            )
+                            fg_mask[mask] = 1
+                            disk_rr, disk_cc = skimage.draw.disk(
+                                tuple(it), radius, shape=disk_mask.shape
+                            )
+                            disk_mask[disk_rr, disk_cc] = 1
+                    else:
+                        fg_mask = np.ones(label[b].shape, dtype=np.uint8)
+                        disk_mask = np.ones(label[b].shape, dtype=np.uint8)
 
-                        rnd_mask = rng.choice([0, 1], size=label[b].shape, p=rnd_p)
-                        rnd_mask_list.append(rnd_mask)
-                    fg_mask = np.stack(fg_mask_list, axis=0)
-                    rnd_mask = np.stack(rnd_mask_list, axis=0)
+                    fg_mask_list.append(fg_mask)
+                    disk_mask_list.append(disk_mask)
+                fg_mask = np.stack(fg_mask_list, axis=0)
+                disk_mask = np.stack(disk_mask_list, axis=0)
 
-                    p = np.zeros(label.shape)
-                    p[fg_mask == 1] = self.ignore_index
-                    p[rnd_mask == 1] = self.ignore_index
-                    p[label == 1] = 1
-                    p = p * visible_info[i]
+                fg_mask = fg_mask * disk_mask
 
-                    pred_list.append(p)
+                p = np.full(label.shape, self.ignore_index)
+                p[(fg_mask == 0) & (out < -threshold)] = 0
+                p[(fg_mask == 1) & (out > threshold)] = 1
+                p[label == 1] = 1
+                p = p * visible_info[i]
 
-                pred = np.stack(pred_list, axis=3).astype(np.uint8)
-            elif mode == 2:
-                pred_list = []
-                for i in range(self.num_class):
-                    label = weak_label[i]
-                    out = output[i].squeeze(1).cpu().numpy()
-                    pred = (out > 0).astype(np.uint8)
+                pred_list.append(p)
 
-                    rnd_mask_list = []
-                    fg_mask_list = []
-                    for b in range(label.shape[0]):
-                        keypoints = np.argwhere(label[b] == 1)
-                        if len(keypoints) > 0:
-                            fg_mask = np.zeros(label[b].shape, dtype=np.uint8)
-                            for it in keypoints:
-                                mask = flood(pred[b], tuple(it), connectivity=1)
-                                fg_mask[mask] = 1
-                        else:
-                            fg_mask = np.ones(label[b].shape, dtype=np.uint8)
-                        fg_mask_list.append(fg_mask)
-                        rnd_mask = rng.choice([0, 1], size=label[b].shape, p=rnd_p)
-                        rnd_mask_list.append(rnd_mask)
-                    fg_mask = np.stack(fg_mask_list, axis=0)
-                    rnd_mask = np.stack(rnd_mask_list, axis=0)
-
-                    p = np.full(label.shape, self.ignore_index)
-                    p[out < -8] = 0
-                    p[(fg_mask == 1) & (out > 8)] = 1
-                    p[rnd_mask == 1] = self.ignore_index
-                    p[label == 1] = 1
-                    p = p * visible_info[i]
-
-                    pred_list.append(p)
-
-                pred = np.stack(pred_list, axis=3).astype(np.uint8)
-            else:
-                raise ValueError(f"mode: {mode} is not supported")
+            pred = np.stack(pred_list, axis=3).astype(np.uint8)
 
             for i in range(pred.shape[0]):
                 save_path = os.path.join(

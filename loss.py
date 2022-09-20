@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def gated_crf_loss(x, y, kernels_desc, kernels_radius, mask_src=None, mask_dst=None):
+def gated_crf_loss(x, y, kernels_desc, kernels_radius, mask_src=None):
     """
     :param kernels_desc: A list of dictionaries, each describing one Gaussian kernel composition from modalities.
         The final kernel is a weighted sum of individual kernels. Following example is a composition of
@@ -74,11 +74,6 @@ def gated_crf_loss(x, y, kernels_desc, kernels_radius, mask_src=None, mask_dst=N
             mask_src, kernels_diameter, padding=kernels_radius
         ).view(n, c, kernels_diameter, kernels_diameter, h, w)
         kernels *= mask_src_unfolded
-
-    if mask_dst is not None:
-        denom = min(mask_dst.sum().clamp(min=1), denom)
-        mask_dst_unfolded = mask_dst.view(N, 1, 1, 1, H, W)
-        kernels *= mask_dst_unfolded
 
     y_hat_unfolded = F.unfold(y_hat, kernels_diameter, padding=kernels_radius).view(
         N, C, kernels_diameter, kernels_diameter, H, W
