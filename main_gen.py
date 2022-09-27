@@ -30,7 +30,9 @@ class GenPseudoLabel:
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
         shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
-        shutil.copyfile("main_gen.py", os.path.join(self.save_dir, "archive_main_gen.py"))
+        shutil.copyfile(
+            "main_gen.py", os.path.join(self.save_dir, "archive_main_gen.py")
+        )
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -147,7 +149,10 @@ class GenPseudoLabel:
         for epoch in range(1, self.epochs + 1):
             self.adjust_learning_rate((epoch - 1) % P)
             if epoch % P == 1:
-                self.gen_pseudo(epoch)
+                if epoch < self.epochs / 2:
+                    self.gen_pseudo(epoch, use_dilation=True)
+                else:
+                    self.gen_pseudo(epoch)
 
             self.train(epoch)
             score = self.validate(epoch)
@@ -203,14 +208,13 @@ class GenPseudoLabel:
             loss = []
             for i in range(self.num_class):
                 l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
-                # l = l_ce
                 l_crf = gated_crf_loss(
                     input,
                     output[i],
                     kernels_desc=[
                         {
                             "weight": 1,
-                            "xy": 20,
+                            "xy": 6,
                             "image": 0.01,
                         }
                     ],
@@ -282,11 +286,16 @@ class GenPseudoLabel:
         return score_meter.avg
 
     @torch.no_grad()
-    def gen_pseudo(self, epoch):
+    def gen_pseudo(self, epoch, use_dilation=False):
         self.model.eval()
 
-        radius = np.ceil(epoch / self.epochs * 320)
-        threshold = 8 * (1 - epoch / self.epochs)
+        if epoch < self.epochs / 2:
+            radius = np.ceil(epoch / self.epochs * 100)
+        
+        threshold = 7
+
+        if use_dilation:
+            footprint = skimage.morphology.disk(10)
 
         loop = tqdm(
             self.gen_pseudo_loader,
@@ -311,7 +320,9 @@ class GenPseudoLabel:
                 pred = (out > 0).astype(np.uint8)
 
                 fg_mask_list = []
-                disk_mask_list = []
+                if epoch < self.epochs / 2:
+                    disk_mask_list = []
+                bg_mask_list = []
                 for b in range(label.shape[0]):
                     keypoints = np.argwhere(label[b] == 1)
                     if len(keypoints) > 0:
@@ -322,23 +333,38 @@ class GenPseudoLabel:
                                 pred[b], tuple(it), connectivity=1
                             )
                             fg_mask[mask] = 1
-                            disk_rr, disk_cc = skimage.draw.disk(
-                                tuple(it), radius, shape=disk_mask.shape
-                            )
-                            disk_mask[disk_rr, disk_cc] = 1
+                            if epoch < self.epochs / 2:
+                                disk_rr, disk_cc = skimage.draw.disk(
+                                    tuple(it), radius, shape=disk_mask.shape
+                                )
+                                disk_mask[disk_rr, disk_cc] = 1
+
+                        if use_dilation:
+                            bg_mask = skimage.morphology.binary_dilation(
+                                fg_mask, footprint
+                            ).astype(np.uint8)
+                        else:
+                            bg_mask = fg_mask.copy()
                     else:
                         fg_mask = np.ones(label[b].shape, dtype=np.uint8)
-                        disk_mask = np.ones(label[b].shape, dtype=np.uint8)
+                        if epoch < self.epochs / 2:
+                            disk_mask = np.ones(label[b].shape, dtype=np.uint8)
+                        bg_mask = np.zeros(label[b].shape, dtype=np.uint8)
 
                     fg_mask_list.append(fg_mask)
-                    disk_mask_list.append(disk_mask)
+                    if epoch < self.epochs / 2:
+                        disk_mask_list.append(disk_mask)
+                    bg_mask_list.append(bg_mask)
                 fg_mask = np.stack(fg_mask_list, axis=0)
-                disk_mask = np.stack(disk_mask_list, axis=0)
+                if epoch < self.epochs / 2:
+                    disk_mask = np.stack(disk_mask_list, axis=0)
+                bg_mask = np.stack(bg_mask_list, axis=0)
 
-                fg_mask = fg_mask * disk_mask
+                if epoch < self.epochs / 2:
+                    fg_mask = fg_mask * disk_mask
 
                 p = np.full(label.shape, self.ignore_index)
-                p[(fg_mask == 0) & (out < -threshold)] = 0
+                p[(bg_mask == 0) & (out < -threshold)] = 0
                 p[(fg_mask == 1) & (out > threshold)] = 1
                 p[label == 1] = 1
                 p = p * visible_info[i]
@@ -381,5 +407,5 @@ class GenPseudoLabel:
 
 
 if __name__ == "__main__":
-    main = GenPseudoLabel("train_cad120.yaml")
+    main = GenPseudoLabel("train_cad120_object.yaml")
     main.exec()

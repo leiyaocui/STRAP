@@ -5,6 +5,7 @@ import shutil
 from tqdm import tqdm
 from datetime import datetime
 import torch
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import make_dataloader
@@ -26,7 +27,7 @@ class CerberusMain:
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
         shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
-        shutil.copyfile("main.py", os.path.join(self.save_dir, "archive_main.py"))
+        shutil.copyfile("main.py", os.path.join(self.save_dir, "archive_main_hc.py"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -41,7 +42,7 @@ class CerberusMain:
         self.class_list = config["affordance"]
         self.num_class = len(self.class_list)
 
-        self.model = DPTAffordanceModel(self.num_class)
+        self.model = DPTAffordanceModel(self.num_class, use_hf=True)
 
         if self.mode == "train":
             self.batch_size = config["batch_size"]
@@ -82,6 +83,7 @@ class CerberusMain:
 
             for i in range(len(self.model.head_dict)):
                 params.append({"params": self.model.head_dict[str(i)].parameters()})
+            params.append({"params": self.model.hierarchical_head.parameters()})
 
             self.optimizer = torch.optim.SGD(
                 params,
@@ -172,8 +174,12 @@ class CerberusMain:
             target = data["weak_label"]
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
+            visible_info = (
+                torch.stack(data["visible_info"], dim=1).cuda(non_blocking=True).float()
+            )
 
-            output = self.model(input)
+            output, output_h = self.model(input, with_hc=True)
+            output_h = output_h[-1]
 
             pred = []
             for i in range(self.num_class):
@@ -213,6 +219,7 @@ class CerberusMain:
                 l = l_ce + l_crf
                 loss.append(l)
             loss = sum(loss)
+            loss += F.binary_cross_entropy_with_logits(output_h, visible_info)
 
             self.optimizer.zero_grad()
             loss.backward()

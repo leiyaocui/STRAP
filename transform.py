@@ -115,7 +115,6 @@ class PILToTensor:
                 "weak_label",
                 "pseudo_label",
                 "visible_info",
-                "mask_dst",
             ]:
                 label = data[k]
                 data[k] = [
@@ -134,7 +133,6 @@ class ImageNormalizeTensor:
         self.std = torch.tensor(std, dtype=torch.float32).view(3, 1, 1)
 
     def __call__(self, data):
-        assert torch.is_tensor(data["image"])
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data

@@ -4,7 +4,9 @@ from tqdm import tqdm
 import yaml
 
 if __name__ == "__main__":
-    dataset_path = "../dataset/cad120/object"
+    mode = "actor"
+
+    dataset_path = f"../dataset/cad120/{mode}"
     fb = open(os.path.join(dataset_path, "train_affordance.txt"), "r")
     file_id_list = []
     for line in fb:
@@ -12,7 +14,7 @@ if __name__ == "__main__":
         file_id = os.path.basename(line.split(",")[0]).split(".")[0]
         file_id_list.append(file_id)
 
-    keypoint_path = "../dataset/cad120/object/train_affordance_keypoint.yaml"
+    keypoint_path = f"../dataset/cad120/{mode}/train_affordance_keypoint.yaml"
     with open(keypoint_path, "r") as fb:
         keypoint_dict = yaml.safe_load(fb)
 
@@ -36,8 +38,13 @@ if __name__ == "__main__":
     class_hist_ratio = class_hist / len(file_id_list)
     print(f"Class Hist Ratio: {class_hist_ratio.tolist()}")
 
-    class_weight = 1 / class_hist_ratio
-    class_weight = class_weight / class_weight.sum()
-    print(f"Class Weight: {np.round(class_weight, 6).tolist()}")
+    # class_weight = 1 / class_hist_ratio
+    # class_weight = class_weight / class_weight.sum()
+    # print(f"Class Weight: {np.round(class_weight, 6).tolist()}")
 
-# class_weight: [0.170589, 0.44999, 0.121701, 0.090404, 0.094336, 0.07298]
+# Object Split
+# Class Hist Ratio: [0.3949, 0.1497, 0.5535, 0.7451, 0.7141, 0.9230]
+
+# Actor Split
+# Class Hist Ratio: [0.3246, 0.1130, 0.5613, 0.7483, 0.6781, 0.9411]
+

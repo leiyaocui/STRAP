@@ -2,6 +2,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from vit import _make_pretrained_vitb_rn50_384, forward_vit
+from hierarchical_head import HierarchicalHead
 
 
 class DPT(nn.Module):
@@ -50,7 +51,7 @@ class DPT(nn.Module):
 
 
 class DPTAffordanceModel(DPT):
-    def __init__(self, num_classes, features=256):
+    def __init__(self, num_classes, features=256, use_hf=False):
         assert num_classes > 0
         super().__init__(
             features=features,
@@ -64,7 +65,13 @@ class DPTAffordanceModel(DPT):
         for i in range(self.num_classes):
             self.head_dict[str(i)] = _make_head(features)
 
-    def forward(self, x):
+        if use_hf:
+            self.hierarchical_head = nn.Sequential(
+                nn.Flatten(1, -1),
+                HierarchicalHead(features * 160 * 160, (12, self.num_classes))
+            )
+
+    def forward(self, x, with_hc=False):
         layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
 
         layer_1_rn = self.scratch.layer1_rn(layer_1)
@@ -83,7 +90,11 @@ class DPTAffordanceModel(DPT):
             out = F.interpolate(out, x.shape[-2:], mode="bilinear", align_corners=False)
             output.append(out)
 
-        return output
+        if with_hc:
+            output_h = self.hierarchical_head(path_1)
+            return output, output_h
+        else:
+            return output
 
 
 class ResidualConvUnit(nn.Module):
