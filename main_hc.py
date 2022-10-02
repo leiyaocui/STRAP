@@ -27,7 +27,7 @@ class CerberusMain:
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
         shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
-        shutil.copyfile("main.py", os.path.join(self.save_dir, "archive_main_hc.py"))
+        shutil.copyfile("main_hc.py", os.path.join(self.save_dir, "archive_main_hc.py"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -211,7 +211,7 @@ class CerberusMain:
                         {
                             "weight": 1,
                             "xy": 20,
-                            "image": 0.1,
+                            "image": 0.01,
                         }
                     ],
                     kernels_radius=5,
@@ -309,5 +309,5 @@ class CerberusMain:
 
 
 if __name__ == "__main__":
-    cerberus = CerberusMain("train_cad120_object.yaml")
+    cerberus = CerberusMain("train_cad120_actor.yaml")
     cerberus.exec()

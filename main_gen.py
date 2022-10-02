@@ -6,6 +6,7 @@ from tqdm import tqdm
 from datetime import datetime
 import pickle
 import torch
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import skimage.segmentation
 import skimage.draw
@@ -45,7 +46,7 @@ class GenPseudoLabel:
         self.class_list = config["affordance"]
         self.num_class = len(self.class_list)
 
-        self.model = DPTAffordanceModel(self.num_class).cuda()
+        self.model = DPTAffordanceModel(self.num_class, use_hf=True).cuda()
         self.model_dir = os.path.join(self.save_dir, "model")
         os.makedirs(self.model_dir, exist_ok=True)
 
@@ -79,6 +80,7 @@ class GenPseudoLabel:
         train_tf = TF.Compose(
             [
                 TF.RandomHorizonalFlipPIL(),
+                TF.ConvertPointLabel(self.num_class, ignore_index=self.ignore_index),
                 TF.PILToTensor(),
                 TF.ImageNormalizeTensor(mean=self.dataset_mean, std=self.dataset_std),
             ]
@@ -88,7 +90,7 @@ class GenPseudoLabel:
             self.data_dir,
             "train_affordance",
             train_tf,
-            label_level=["dense", "pseudo"],
+            label_level=["dense", "pseudo", "point"],
             pseudo_label_dir=self.pseudo_label_dir,
             batch_size=config["batch_size"],
             shuffle=True,
@@ -123,6 +125,7 @@ class GenPseudoLabel:
 
         for i in range(self.num_class):
             params.append({"params": self.model.head_dict[str(i)].parameters()})
+        params.append({"params": self.model.hierarchical_head.parameters()})
 
         self.optimizer = torch.optim.SGD(
             params,
@@ -135,10 +138,12 @@ class GenPseudoLabel:
         checkpoint = torch.load(
             config["resume"], map_location=lambda storage, loc: storage
         )
-        self.best_score = checkpoint["best_score"]
+
         self.model.load_state_dict(
             {k.replace("module.", ""): v for k, v in checkpoint["state_dict"].items()}
         )
+
+        self.best_score = -1
 
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
@@ -149,10 +154,7 @@ class GenPseudoLabel:
         for epoch in range(1, self.epochs + 1):
             self.adjust_learning_rate((epoch - 1) % P)
             if epoch % P == 1:
-                if epoch < self.epochs / 2:
-                    self.gen_pseudo(epoch, use_dilation=True)
-                else:
-                    self.gen_pseudo(epoch)
+                self.gen_pseudo(epoch, use_dilation=True, use_disk=True)
 
             self.train(epoch)
             score = self.validate(epoch)
@@ -182,8 +184,12 @@ class GenPseudoLabel:
             target = data["pseudo_label"]
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
+            visible_info = (
+                torch.stack(data["visible_info"], dim=1).cuda(non_blocking=True).float()
+            )
 
-            output = self.model(input)
+            output, output_h = self.model(input, with_hc=True)
+            output_h = output_h[-1]
 
             pred = []
             for i in range(self.num_class):
@@ -208,21 +214,22 @@ class GenPseudoLabel:
             loss = []
             for i in range(self.num_class):
                 l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
-                l_crf = gated_crf_loss(
+                l_crf = 0.1 * gated_crf_loss(
                     input,
                     output[i],
                     kernels_desc=[
                         {
                             "weight": 1,
-                            "xy": 6,
+                            "xy": 20,
                             "image": 0.01,
                         }
                     ],
                     kernels_radius=5,
                 )
-                l = l_ce + 0.1 * l_crf
+                l = l_ce + l_crf
                 loss.append(l)
             loss = sum(loss)
+            loss += F.binary_cross_entropy_with_logits(output_h, visible_info)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -286,12 +293,12 @@ class GenPseudoLabel:
         return score_meter.avg
 
     @torch.no_grad()
-    def gen_pseudo(self, epoch, use_dilation=False):
+    def gen_pseudo(self, epoch, use_dilation=False, use_disk=False):
         self.model.eval()
 
-        if epoch < self.epochs / 2:
+        if use_disk:
             radius = np.ceil(epoch / self.epochs * 100)
-        
+
         threshold = 7
 
         if use_dilation:
@@ -320,7 +327,7 @@ class GenPseudoLabel:
                 pred = (out > 0).astype(np.uint8)
 
                 fg_mask_list = []
-                if epoch < self.epochs / 2:
+                if use_disk:
                     disk_mask_list = []
                 bg_mask_list = []
                 for b in range(label.shape[0]):
@@ -333,7 +340,7 @@ class GenPseudoLabel:
                                 pred[b], tuple(it), connectivity=1
                             )
                             fg_mask[mask] = 1
-                            if epoch < self.epochs / 2:
+                            if use_disk:
                                 disk_rr, disk_cc = skimage.draw.disk(
                                     tuple(it), radius, shape=disk_mask.shape
                                 )
@@ -347,20 +354,20 @@ class GenPseudoLabel:
                             bg_mask = fg_mask.copy()
                     else:
                         fg_mask = np.ones(label[b].shape, dtype=np.uint8)
-                        if epoch < self.epochs / 2:
+                        if use_disk:
                             disk_mask = np.ones(label[b].shape, dtype=np.uint8)
                         bg_mask = np.zeros(label[b].shape, dtype=np.uint8)
 
                     fg_mask_list.append(fg_mask)
-                    if epoch < self.epochs / 2:
+                    if use_disk:
                         disk_mask_list.append(disk_mask)
                     bg_mask_list.append(bg_mask)
                 fg_mask = np.stack(fg_mask_list, axis=0)
-                if epoch < self.epochs / 2:
+                if use_disk:
                     disk_mask = np.stack(disk_mask_list, axis=0)
                 bg_mask = np.stack(bg_mask_list, axis=0)
 
-                if epoch < self.epochs / 2:
+                if use_disk:
                     fg_mask = fg_mask * disk_mask
 
                 p = np.full(label.shape, self.ignore_index)

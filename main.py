@@ -125,8 +125,7 @@ class CerberusMain:
                 {
                     k.replace("module.", ""): v
                     for k, v in checkpoint["state_dict"].items()
-                },
-                strict=False,
+                }
             )
 
             if not config["restart"]:
@@ -205,7 +204,7 @@ class CerberusMain:
                         {
                             "weight": 1,
                             "xy": 20,
-                            "image": 0.1,
+                            "image": 0.01,
                         }
                     ],
                     kernels_radius=5,
@@ -302,5 +301,5 @@ class CerberusMain:
 
 
 if __name__ == "__main__":
-    cerberus = CerberusMain("train_cad120_object.yaml")
+    cerberus = CerberusMain("train_cad120_actor.yaml")
     cerberus.exec()

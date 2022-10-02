@@ -133,6 +133,7 @@ class ImageNormalizeTensor:
         self.std = torch.tensor(std, dtype=torch.float32).view(3, 1, 1)
 
     def __call__(self, data):
+        data["orig_image"] = data["image"].clone()
         data["image"] = (data["image"] - self.mean) / self.std
 
         return data

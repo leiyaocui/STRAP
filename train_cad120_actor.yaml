@@ -18,5 +18,5 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: ""
-restart: false
+resume: "ignore_archive/actor/hc_refine/model/checkpoint_latest.pth"
+restart: true
