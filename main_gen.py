@@ -56,6 +56,7 @@ class GenPseudoLabel:
         self.pseudo_label_dir = os.path.join(self.save_dir, "pseudo_label")
         os.makedirs(self.pseudo_label_dir, exist_ok=True)
 
+        self.rng = np.random.default_rng()
         gen_pseudo_tf = TF.Compose(
             [
                 TF.ConvertPointLabel(self.num_class, ignore_index=self.ignore_index),
@@ -293,12 +294,11 @@ class GenPseudoLabel:
         return score_meter.avg
 
     @torch.no_grad()
-    def gen_pseudo(self, epoch, use_dilation=False, use_disk=False):
+    def gen_pseudo(self, epoch, use_dilation=False, use_disk=False, use_rnd=True):
         self.model.eval()
 
         if use_disk:
             radius = np.ceil(epoch / self.epochs * 100)
-
         threshold = 7
 
         if use_dilation:
@@ -343,7 +343,7 @@ class GenPseudoLabel:
                             if use_disk:
                                 disk_rr, disk_cc = skimage.draw.disk(
                                     tuple(it), radius, shape=disk_mask.shape
-                                )
+                                )]
                                 disk_mask[disk_rr, disk_cc] = 1
 
                         if use_dilation:
@@ -352,6 +352,14 @@ class GenPseudoLabel:
                             ).astype(np.uint8)
                         else:
                             bg_mask = fg_mask.copy()
+                        
+                        if use_rnd:
+                            rnd_p = epoch / self.epochs
+                            rnd_mask = self.rng.choice(
+                                [False, True], size=fg_mask.shape, p=[rnd_p, 1 - rnd_p]
+                            )
+                            fg_mask[rnd_mask] = self.ignore_index
+                            bg_mask[rnd_mask] = self.ignore_index
                     else:
                         fg_mask = np.ones(label[b].shape, dtype=np.uint8)
                         if use_disk:
@@ -414,5 +422,5 @@ class GenPseudoLabel:
 
 
 if __name__ == "__main__":
-    main = GenPseudoLabel("train_cad120_actor.yaml")
+    main = GenPseudoLabel("train_cad120_object.yaml")
     main.exec()
