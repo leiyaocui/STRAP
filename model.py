@@ -68,7 +68,7 @@ class DPTAffordanceModel(DPT):
         if use_hf:
             self.hierarchical_head = nn.Sequential(
                 nn.Flatten(1, -1),
-                HierarchicalHead(features * 160 * 160, (12, self.num_classes))
+                HierarchicalHead(features * 160 * 160, tuple([self.num_classes]))
             )
 
     def forward(self, x, with_hc=False):

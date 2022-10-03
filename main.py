@@ -301,5 +301,5 @@ class CerberusMain:
 
 
 if __name__ == "__main__":
-    cerberus = CerberusMain("train_cad120_actor.yaml")
+    cerberus = CerberusMain("train_cad120_object.yaml")
     cerberus.exec()

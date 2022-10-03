@@ -414,5 +414,5 @@ class GenPseudoLabel:
 
 
 if __name__ == "__main__":
-    main = GenPseudoLabel("train_cad120_object.yaml")
+    main = GenPseudoLabel("train_cad120_actor.yaml")
     main.exec()

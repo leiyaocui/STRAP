@@ -73,13 +73,13 @@ class HierarchicalHead(nn.Module):
         """
         super().__init__()
 
-        # check layer_nodes is formatted correctly and has more than one element
-        assert isinstance(
-            layer_nodes, (list, tuple)
-        ), f"layer_nodes parameter ({layer_nodes}) must be a tuple or list."
-        assert (
-            len(layer_nodes) > 1
-        ), f"Number of layer nodes ({layer_nodes}) must be greater than one."
+        # # check layer_nodes is formatted correctly and has more than one element
+        # assert isinstance(
+        #     layer_nodes, (list, tuple)
+        # ), f"layer_nodes parameter ({layer_nodes}) must be a tuple or list."
+        # assert (
+        #     len(layer_nodes) > 1
+        # ), f"Number of layer nodes ({layer_nodes}) must be greater than one."
 
         self.D = input_feature_length
         self.m = len(layer_nodes)
