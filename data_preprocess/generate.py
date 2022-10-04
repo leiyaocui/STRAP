@@ -183,8 +183,8 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
     split_mode = "actor"
-    source_path = "../../../dataset/CAD120"
-    output_path = os.path.join("../../../dataset/cad120", split_mode)
+    source_path = "../../dataset/CAD120"
+    output_path = os.path.join("../../dataset/cad120", split_mode)
 
     # if os.path.exists(output_path):
     #     shutil.rmtree(output_path)
