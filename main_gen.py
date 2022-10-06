@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import yaml
+import argparse
 import shutil
 from tqdm import tqdm
 from datetime import datetime
@@ -422,5 +423,19 @@ class GenPseudoLabel:
 
 
 if __name__ == "__main__":
-    main = GenPseudoLabel("train_cad120_object.yaml")
-    main.exec()
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=None,
+        type=str,
+        metavar="PATH",
+        help="YAML Config Path",
+    )
+    args = parser.parse_args()
+
+    yaml_path = args.config
+    print(yaml_path)
+    if os.path.exists(yaml_path):
+        cerberus = GenPseudoLabel(yaml_path)
+        cerberus.exec()

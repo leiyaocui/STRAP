@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import yaml
+import argparse
 import shutil
 from tqdm import tqdm
 from datetime import datetime
@@ -301,5 +302,19 @@ class CerberusMain:
 
 
 if __name__ == "__main__":
-    cerberus = CerberusMain("train_cad120_actor.yaml")
-    cerberus.exec()
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=None,
+        type=str,
+        metavar="PATH",
+        help="YAML Config Path",
+    )
+    args = parser.parse_args()
+
+    yaml_path = args.config
+    print(yaml_path)
+    if os.path.exists(yaml_path):
+        cerberus = CerberusMain(yaml_path)
+        cerberus.exec()
