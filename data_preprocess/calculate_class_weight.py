@@ -32,7 +32,8 @@ if __name__ == "__main__":
     for file_id in tqdm(file_id_list, ncols=80):
         keypoint = keypoint_dict[file_id]
         for k in keypoint.keys():
-            class_hist[k] += 1
+            class_hist[k] += len(keypoint[k]) > 0
+            # class_hist[k] += 1
     print(f"Class Hist: {class_hist.tolist()}")
 
     class_hist_ratio = class_hist / len(file_id_list)

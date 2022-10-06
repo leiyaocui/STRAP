@@ -14,13 +14,6 @@ from model import DPTAffordanceModel
 from loss import bce_loss, gated_crf_loss
 from util import IoU, AverageMeter
 
-import pickle
-from PIL import Image
-
-if os.path.exists("dump"):
-    shutil.rmtree("dump")
-os.makedirs("dump/image")
-
 
 class CerberusMain:
     def __init__(self, yaml_path):
@@ -175,16 +168,6 @@ class CerberusMain:
         )
         for data in loop:
             input = data["image"].cuda(non_blocking=True)
-
-            input_dump = input.clone().cpu().numpy()
-            for img, fname in zip(input_dump, data["file_name"]):
-                # with open(os.path.join("dump", "image", f"{fname}.pkl"), "wb") as fb:
-                #     pickle.dump(img, fb)
-                img = img * np.array(self.dataset_std).reshape(3, 1, 1) + np.array(self.dataset_mean).reshape(3, 1, 1)
-                # img = Image.fromarray(img.permute(1, 2, 0).cpu().numpy().astype(np.uint8))
-                img = Image.fromarray(img.transpose(1, 2, 0).astype(np.uint8))
-                img.save(os.path.join("dump", "image", f"{fname}.png"))
-            
             target = data["weak_label"]
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
