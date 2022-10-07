@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 
 if __name__ == "__main__":
-    dataset_path = "../dataset/cad120/actor"
+    dataset_path = "../dataset/umd/novel"
     fb = open(os.path.join(dataset_path, "train_affordance.txt"), "r")
     image_path_list = []
     for line in fb:

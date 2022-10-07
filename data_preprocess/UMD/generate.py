@@ -13,7 +13,7 @@ import shutil
 def get_keypoint(labels):
     keypoint_dict = {}
     for idx, label in enumerate(labels):
-        contours, _ = cv2.findContours(label, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if len(contours) == 0:
             continue
 
@@ -93,7 +93,7 @@ def gen_dataset(umd_path, save_path, split_mode):
 
         label = loadmat(label_path)["gt_label"].astype(np.uint8).transpose(2, 0, 1)
         for i, it in enumerate(label):
-            it[it > 2] = 0
+            it[it > 3] = 0
             it[it > 0] = 1
             label[i] = it
 
@@ -132,7 +132,7 @@ def gen_dataset(umd_path, save_path, split_mode):
 
         label = loadmat(label_path)["gt_label"].astype(np.uint8).transpose(2, 0, 1)
         for i, it in enumerate(label):
-            it[it > 2] = 0
+            it[it > 3] = 0
             it[it > 0] = 1
             label[i] = it
         label = label.transpose(1, 2, 0)
@@ -151,7 +151,7 @@ def gen_dataset(umd_path, save_path, split_mode):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
-    split_mode = "category"
+    split_mode = "novel"
     source_path = "../../../dataset/UMD/part-affordance-dataset"
     output_path = os.path.join("../../../dataset/umd", split_mode)
 

@@ -4,9 +4,10 @@ data_dir: "../dataset/umd/category"
 
 affordance:
   ["grasp", "cut", "scoop", "contain", "pound", "support", "wrap-grasp"]
+num_objects: 17
 
-dataset_mean:
-dataset_std:
+dataset_mean: [92.3864, 90.0718, 99.9417]
+dataset_std: [39.8011, 35.7446, 26.3675]
 
 epochs: 100
 batch_size: 4
@@ -18,5 +19,5 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: "ignore_archive/object/hc_refine/model/checkpoint_latest.pth"
-restart: true
+resume: ""
+restart: false

@@ -4,6 +4,7 @@ data_dir: "../dataset/cad120/actor"
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+num_objects: 12
 
 dataset_mean: [136.5133, 108.5417, 113.0168]
 dataset_std: [67.4025, 70.7446, 72.1553]

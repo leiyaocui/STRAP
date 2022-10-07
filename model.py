@@ -51,7 +51,7 @@ class DPT(nn.Module):
 
 
 class DPTAffordanceModel(DPT):
-    def __init__(self, num_classes, features=256, use_hf=False):
+    def __init__(self, num_objects, num_classes, features=256, use_hf=False):
         assert num_classes > 0
         super().__init__(
             features=features,
@@ -68,7 +68,7 @@ class DPTAffordanceModel(DPT):
         if use_hf:
             self.hierarchical_head = nn.Sequential(
                 nn.Flatten(1, -1),
-                HierarchicalHead(features * 160 * 160, tuple([12, self.num_classes]))
+                HierarchicalHead(features * 160 * 160, tuple([num_objects, self.num_classes]))
             )
 
     def forward(self, x, with_hc=False):

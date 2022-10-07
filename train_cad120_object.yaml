@@ -4,6 +4,7 @@ data_dir: "../dataset/cad120/object"
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+num_objects: 12
 
 dataset_mean: [132.2723, 106.8666, 112.8962]
 dataset_std: [68.9081, 71.0827, 72.8808]

@@ -31,7 +31,10 @@ class GenPseudoLabel:
         )
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
-        shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
+        shutil.copyfile(
+            yaml_path,
+            os.path.join(self.save_dir, f"archive_{os.path.basename(yaml_path)}"),
+        )
         shutil.copyfile(
             "main_gen.py", os.path.join(self.save_dir, "archive_main_gen.py")
         )
@@ -47,7 +50,7 @@ class GenPseudoLabel:
         self.class_list = config["affordance"]
         self.num_class = len(self.class_list)
 
-        self.model = DPTAffordanceModel(self.num_class, use_hf=True).cuda()
+        self.model = DPTAffordanceModel(config["num_objects"], self.num_class, use_hf=True).cuda()
         self.model_dir = os.path.join(self.save_dir, "model")
         os.makedirs(self.model_dir, exist_ok=True)
 
@@ -344,7 +347,7 @@ class GenPseudoLabel:
                             if use_disk:
                                 disk_rr, disk_cc = skimage.draw.disk(
                                     tuple(it), radius, shape=disk_mask.shape
-                                )]
+                                )
                                 disk_mask[disk_rr, disk_cc] = 1
 
                         if use_dilation:
@@ -353,7 +356,7 @@ class GenPseudoLabel:
                             ).astype(np.uint8)
                         else:
                             bg_mask = fg_mask.copy()
-                        
+
                         if use_rnd:
                             rnd_p = epoch / self.epochs
                             rnd_mask = self.rng.choice(

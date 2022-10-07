@@ -27,7 +27,10 @@ class CerberusMain:
         )
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
-        shutil.copyfile(yaml_path, os.path.join(self.save_dir, "archive_config.yaml"))
+        shutil.copyfile(
+            yaml_path,
+            os.path.join(self.save_dir, f"archive_{os.path.basename(yaml_path)}"),
+        )
         shutil.copyfile("main_hc.py", os.path.join(self.save_dir, "archive_main_hc.py"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
@@ -43,7 +46,7 @@ class CerberusMain:
         self.class_list = config["affordance"]
         self.num_class = len(self.class_list)
 
-        self.model = DPTAffordanceModel(self.num_class, use_hf=True)
+        self.model = DPTAffordanceModel(config["num_objects"], self.num_class, use_hf=True)
 
         if self.mode == "train":
             self.batch_size = config["batch_size"]
