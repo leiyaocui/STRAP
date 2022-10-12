@@ -151,7 +151,7 @@ def gen_dataset(umd_path, save_path, split_mode):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
-    split_mode = "novel"
+    split_mode = "category"
     source_path = "../../../dataset/UMD/part-affordance-dataset"
     output_path = os.path.join("../../../dataset/umd", split_mode)
 

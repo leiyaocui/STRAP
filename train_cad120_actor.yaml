@@ -19,5 +19,5 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: "ignore_archive/actor/pce+crf_20_0.01/model/checkpoint_latest.pth"
-restart: true
+resume: ""
+restart: 

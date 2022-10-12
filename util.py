@@ -7,14 +7,15 @@ class AverageMeter:
         self.reset()
 
     def reset(self):
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
+        self.value = 0.0
+        self.count = 0.0
 
-    def update(self, val, n=1):
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
+    def update(self, value, count):
+        self.value += value * count
+        self.count += count
+
+    def get(self):
+        return self.value / self.count
 
 
 np.seterr(invalid="ignore")
@@ -29,9 +30,13 @@ def IoU(output, target, num_class, ignore_index=255):
     pred = pred[mask]
     target = target[mask]
 
-    hist = np.bincount(num_class * target + pred, minlength=num_class**2).reshape(
-        num_class, num_class
-    )
-    ious = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
+    if target.max() == 0:
+        return np.nan
+    else:
+        hist = np.bincount(num_class * target + pred, minlength=num_class**2).reshape(
+            num_class, num_class
+        )
 
-    return ious[1] * 100
+        iou = np.diag(hist) / (hist.sum(1) + hist.sum(0) - np.diag(hist))
+
+        return iou[1] * 100

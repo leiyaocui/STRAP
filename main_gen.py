@@ -189,6 +189,9 @@ class GenPseudoLabel:
             target = data["pseudo_label"]
             for i in range(self.num_class):
                 target[i] = target[i].cuda(non_blocking=True)
+            dense_target = data["dense_label"]
+            for i in range(self.num_class):
+                dense_target[i] = dense_target[i].cuda(non_blocking=True)
             visible_info = (
                 torch.stack(data["visible_info"], dim=1).cuda(non_blocking=True).float()
             )
@@ -204,16 +207,16 @@ class GenPseudoLabel:
             for i in range(self.num_class):
                 score_per_class = IoU(
                     pred[i],
-                    data["dense_label"][i],
+                    dense_target[i],
                     num_class=2,
                     ignore_index=self.ignore_index,
                 )
-                score.append(score_per_class)
                 if not np.isnan(score_per_class):
                     score_per_class_meter[i].update(score_per_class, input.shape[0])
+                    score.append(score_per_class)
 
-            score = np.nanmean(score)
-            if not np.isnan(score):
+            if len(score) > 0:
+                score = np.mean(score)
                 score_meter.update(score, input.shape[0])
 
             loss = []
@@ -277,14 +280,17 @@ class GenPseudoLabel:
             score = []
             for i in range(self.num_class):
                 score_per_class = IoU(
-                    pred[i], target[i], num_class=2, ignore_index=self.ignore_index
+                    pred[i],
+                    target[i],
+                    num_class=2,
+                    ignore_index=self.ignore_index,
                 )
-                score.append(score_per_class)
                 if not np.isnan(score_per_class):
                     score_per_class_meter[i].update(score_per_class, input.shape[0])
+                    score.append(score_per_class)
 
-            score = np.nanmean(score)
-            if not np.isnan(score):
+            if len(score) > 0:
+                score = np.mean(score)
                 score_meter.update(score, input.shape[0])
 
             loop.set_postfix(score=score)

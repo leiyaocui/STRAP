@@ -67,9 +67,7 @@ class CustomDataset(Dataset):
                     for i in range(dense_label.shape[2])
                 ]
 
-        if "pseudo" in self.label_level and os.path.exists(
-            self.pseudo_label_list[index]
-        ):
+        if "pseudo" in self.label_level:
             with open(self.pseudo_label_list[index], "rb") as fb:
                 pseudo_label = pickle.load(fb)
                 data["pseudo_label"] = [
