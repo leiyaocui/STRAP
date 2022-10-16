@@ -6,6 +6,14 @@ affordance:
   ["grasp", "cut", "scoop", "contain", "pound", "support", "wrap-grasp"]
 num_objects: 17
 
+crf:
+  kernels_radius: 5
+  kernels_desc:
+    -
+      weight: 1
+      xy: 20
+      image: 0.01
+
 dataset_mean: [92.3864, 90.0718, 99.9417]
 dataset_std: [39.8011, 35.7446, 26.3675]
 
@@ -19,5 +27,5 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: ""
+resume: "output/20221013_180537/model/checkpoint_latest.pth"
 restart: false

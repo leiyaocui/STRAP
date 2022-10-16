@@ -53,6 +53,8 @@ class CerberusMain:
             self.epochs = config["epochs"]
             self.initial_lr = config["lr"]
 
+            self.crf_config = config["crf"]
+
             self.model = self.model.cuda()
 
             train_tf = TF.Compose(
@@ -214,14 +216,8 @@ class CerberusMain:
                 l_crf = 0.1 * gated_crf_loss(
                     input,
                     output[i],
-                    kernels_desc=[
-                        {
-                            "weight": 1,
-                            "xy": 20,
-                            "image": 0.01,
-                        }
-                    ],
-                    kernels_radius=5,
+                    kernels_desc=self.crf_config["kernels_desc"],
+                    kernels_radius=self.crf_config["kernels_radius"],
                 )
                 l = l_ce + l_crf
                 loss.append(l)
@@ -235,14 +231,14 @@ class CerberusMain:
             loss_meter.update(loss.item(), input.shape[0])
             loop.set_postfix(loss=loss.item(), score=score)
 
-        self.writer.add_scalar(f"loss_train", loss_meter.avg, global_step=epoch)
-        self.writer.add_scalar(f"miou_train", score_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"loss_train", loss_meter.get(), global_step=epoch)
+        self.writer.add_scalar(f"miou_train", score_meter.get(), global_step=epoch)
         for i, it in enumerate(self.class_list):
             self.writer.add_scalar(
-                f"iou_{it}_train", score_per_class_meter[i].avg, global_step=epoch
+                f"iou_{it}_train", score_per_class_meter[i].get(), global_step=epoch
             )
 
-        return score_meter.avg
+        return score_meter.get()
 
     @torch.no_grad()
     def validate(self, epoch):
@@ -284,13 +280,13 @@ class CerberusMain:
 
             loop.set_postfix(score=score)
 
-        self.writer.add_scalar(f"miou_val", score_meter.avg, global_step=epoch)
+        self.writer.add_scalar(f"miou_val", score_meter.get(), global_step=epoch)
         for i, it in enumerate(self.class_list):
             self.writer.add_scalar(
-                f"iou_{it}_val", score_per_class_meter[i].avg, global_step=epoch
+                f"iou_{it}_val", score_per_class_meter[i].get(), global_step=epoch
             )
 
-        return score_meter.avg
+        return score_meter.get()
 
     def save_checkpoint(self, epoch, score, backup_freq=10):
         save_dir = os.path.join(self.save_dir, "model")

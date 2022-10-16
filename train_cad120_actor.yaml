@@ -6,6 +6,14 @@ affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
 num_objects: 12
 
+crf:
+  kernels_radius: 5
+  kernels_desc:
+    -
+      weight: 1
+      xy: 20
+      image: 0.01
+
 dataset_mean: [136.5133, 108.5417, 113.0168]
 dataset_std: [67.4025, 70.7446, 72.1553]
 
@@ -13,7 +21,7 @@ epochs: 100
 batch_size: 4
 workers: 10
 
-lr: 0.001
+lr: 0.002
 momentum: 0.9
 weight_decay: 0.0001
 

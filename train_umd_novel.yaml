@@ -6,8 +6,16 @@ affordance:
   ["grasp", "cut", "scoop", "contain", "pound", "support", "wrap-grasp"]
 num_objects: 17
 
-dataset_mean: [92.3864, 90.0718, 99.9417]
-dataset_std: [39.8011, 35.7446, 26.3675]
+crf:
+  kernels_radius: 5
+  kernels_desc:
+    -
+      weight: 1
+      xy: 20
+      image: 0.01
+
+dataset_mean: [91.0225, 88.7460, 98.6912]
+dataset_std: [39.2350, 35.3153, 25.9143]
 
 epochs: 100
 batch_size: 4

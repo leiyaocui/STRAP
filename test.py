@@ -9,9 +9,11 @@ from dataset import make_dataloader
 torch.set_grad_enabled(False)
 
 task = ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
-split_mode = "object"
+split_mode = "actor"
+mode = "val"
 print(split_mode)
-resume_path = "ignore_archive/object/pce/model/model_best.pth"
+print(mode)
+resume_path = "ignore_archive/actor/hc_refine/model/checkpoint_latest.pth"
 print(resume_path)
 
 num_objects = 12
@@ -39,17 +41,17 @@ elif split_mode == "actor":
 else:
     raise Exception(f"split_mode: {split_mode}")
 
-val_tf = TF.Compose(
+tf = TF.Compose(
     [
         TF.PILToTensor(),
         TF.ImageNormalizeTensor(mean=mean, std=std),
     ]
 )
 
-val_loader = make_dataloader(
+loader = make_dataloader(
     f"../dataset/cad120/{split_mode}",
-    "val_affordance",
-    val_tf,
+    f"{mode}_affordance",
+    tf,
     label_level=["dense"],
     batch_size=1,
     shuffle=False,
@@ -61,11 +63,11 @@ val_loader = make_dataloader(
 score_meter = AverageMeter()
 score_per_class_meter = [AverageMeter() for _ in range(len(task))]
 
-for data in tqdm(val_loader):
+for data in tqdm(loader):
     input = data["image"].cuda(non_blocking=True)
     target = data["dense_label"]
     for i in range(len(task)):
-                target[i] = target[i].cuda(non_blocking=True)
+        target[i] = target[i].cuda(non_blocking=True)
     output = model(input)
     pred = []
     for i in range(len(task)):

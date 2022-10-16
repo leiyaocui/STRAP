@@ -6,6 +6,14 @@ affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
 num_objects: 12
 
+crf:
+  kernels_radius: 5
+  kernels_desc:
+    -
+      weight: 1
+      xy: 20
+      image: 0.01
+
 dataset_mean: [132.2723, 106.8666, 112.8962]
 dataset_std: [68.9081, 71.0827, 72.8808]
 
@@ -19,5 +27,5 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: "ignore_archive/object/hc_refine/model/checkpoint_latest.pth"
-restart: true
+resume: ""
+restart: false
