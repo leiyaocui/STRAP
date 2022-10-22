@@ -7,6 +7,7 @@ affordance:
 num_objects: 12
 
 crf:
+  weight: 0.1
   kernels_radius: 5
   kernels_desc:
     -
@@ -21,11 +22,11 @@ epochs: 100
 batch_size: 4
 workers: 10
 
-lr: 0.002
+lr: 0.001
 momentum: 0.9
 weight_decay: 0.0001
 
 save_dir: "output"
 
 resume: ""
-restart: 
+restart: false

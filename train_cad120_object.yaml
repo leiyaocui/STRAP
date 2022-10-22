@@ -7,6 +7,7 @@ affordance:
 num_objects: 12
 
 crf:
+  weight: 0.1
   kernels_radius: 5
   kernels_desc:
     -

@@ -213,7 +213,7 @@ class CerberusMain:
             loss = []
             for i in range(self.num_class):
                 l_ce = bce_loss(output[i], target[i], ignore_index=self.ignore_index)
-                l_crf = 0.1 * gated_crf_loss(
+                l_crf = self.crf_config["weight"] * gated_crf_loss(
                     input,
                     output[i],
                     kernels_desc=self.crf_config["kernels_desc"],
