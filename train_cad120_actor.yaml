@@ -5,6 +5,7 @@ data_dir: "../dataset/cad120/actor"
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
 num_objects: 12
+class_weight: [0.175230, 0.503126, 0.101333, 0.076004, 0.083871, 0.060436]
 
 crf:
   weight: 0.1
