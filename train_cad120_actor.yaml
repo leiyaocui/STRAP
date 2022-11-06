@@ -5,7 +5,6 @@ data_dir: "../dataset/cad120/actor"
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
 num_objects: 12
-class_weight: [0.175230, 0.503126, 0.101333, 0.076004, 0.083871, 0.060436]
 
 crf:
   weight: 0.1
@@ -14,7 +13,7 @@ crf:
     -
       weight: 1
       xy: 20
-      image: 0.01
+      image: 0.1
 
 dataset_mean: [136.5133, 108.5417, 113.0168]
 dataset_std: [67.4025, 70.7446, 72.1553]
@@ -29,5 +28,5 @@ weight_decay: 0.0001
 
 save_dir: "output"
 
-resume: ""
-restart: false
+resume: "ignore_archive/actor/hc_refine/model/checkpoint_latest.pth"
+restart: true

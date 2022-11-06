@@ -135,7 +135,6 @@ class HierarchicalHead(nn.Module):
             backward_activations.append(net(backward_activations[i], x_l[-i - 2]))
 
         # reverse backward activations for easier indexing (should do this with reversed() for less memory)
-        # backward_activations = backward_activations[::-1]
         backward_activations = reversed(backward_activations)
 
         # stage 3: build output logits

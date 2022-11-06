@@ -45,7 +45,6 @@ class CerberusMain:
 
         self.class_list = config["affordance"]
         self.num_class = len(self.class_list)
-        self.class_weight = config["class_weight"]
 
         self.model = DPTAffordanceModel(config["num_objects"], self.num_class, use_hf=True)
 
@@ -162,11 +161,9 @@ class CerberusMain:
 
         for idx, param_group in enumerate(self.optimizer.param_groups):
             if idx < 2:
-                param_group["lr"] = lr
-            elif idx < 2 + self.num_class:
-                param_group["lr"] = lr / self.class_weight[idx - 2]
+                param_group["lr"] = lr / self.num_class
             else:
-                param_group["lr"]
+                param_group["lr"] = lr
 
     def train(self, epoch):
         self.model.train()
@@ -222,7 +219,7 @@ class CerberusMain:
                     kernels_desc=self.crf_config["kernels_desc"],
                     kernels_radius=self.crf_config["kernels_radius"],
                 )
-                l = (l_ce + l_crf) * self.class_weight[i]
+                l = l_ce + l_crf
                 loss.append(l)
             loss = sum(loss)
             loss += F.binary_cross_entropy_with_logits(output_h, visible_info)
@@ -330,7 +327,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     yaml_path = args.config
-    print(yaml_path)
+    print("Config: " + yaml_path)
     if os.path.exists(yaml_path):
         cerberus = CerberusMain(yaml_path)
         cerberus.exec()
