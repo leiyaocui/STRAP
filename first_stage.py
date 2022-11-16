@@ -4,37 +4,27 @@ import yaml
 import argparse
 import shutil
 from tqdm import tqdm
-from datetime import datetime
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import make_dataloader
-import transform as TF
-from model import DPTAffordanceModel
+from datasets.dataset import make_dataloader
+import utils.transform as TF
+from models.model import DPTAffordanceModel
 
-from loss import bce_loss, gated_crf_loss
-from util import IoU, AverageMeter
+from utils.loss import bce_loss, gated_crf_loss
+from utils.util import IoU, AverageMeter
 
 
-class CerberusMain:
+class STRAP_FIRST:
     def __init__(self, yaml_path):
         with open(yaml_path, "r") as fb:
             config = yaml.safe_load(fb)
 
-        self.save_dir = os.path.join(
-            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
-        )
+        self.save_dir = config["save_dir"]
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
-        shutil.copyfile(
-            yaml_path,
-            os.path.join(self.save_dir, f"archive_{os.path.basename(yaml_path)}"),
-        )
-        shutil.copyfile("main.py", os.path.join(self.save_dir, "archive_main.py"))
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
-
-        self.mode = config["mode"]
 
         self.data_dir = config["data_dir"]
         self.ignore_index = 255
@@ -47,58 +37,38 @@ class CerberusMain:
 
         self.model = DPTAffordanceModel(config["num_objects"], self.num_class)
 
-        if self.mode == "train":
-            self.batch_size = config["batch_size"]
-            self.epochs = config["epochs"]
-            self.initial_lr = config["lr"]
+        self.batch_size = config["batch_size"]
+        self.epochs = config["epochs"]
+        self.initial_lr = config["lr"]
 
-            self.crf_config = config["crf"]
+        self.crf_config = config["crf"]
 
-            self.model = self.model.cuda()
+        self.model = self.model.cuda()
 
-            train_tf = TF.Compose(
-                [
-                    TF.RandomHorizonalFlipPIL(),
-                    TF.ConvertPointLabel(
-                        self.num_class, ignore_index=self.ignore_index
-                    ),
-                    TF.PILToTensor(),
-                    TF.ImageNormalizeTensor(
-                        mean=self.dataset_mean, std=self.dataset_std
-                    ),
-                ]
-            )
-
-            self.train_loader = make_dataloader(
-                self.data_dir,
-                "train_affordance",
-                train_tf,
-                label_level=["dense", "point"],
-                batch_size=self.batch_size,
-                shuffle=True,
-                num_workers=config["workers"],
-                pin_memory=True,
-                drop_last=True,
-            )
-
-            params = [
-                {"params": self.model.pretrained.parameters()},
-                {"params": self.model.scratch.parameters()},
+        train_tf = TF.Compose(
+            [
+                TF.RandomHorizonalFlipPIL(),
+                TF.ConvertPointLabel(
+                    self.num_class, ignore_index=self.ignore_index
+                ),
+                TF.PILToTensor(),
+                TF.ImageNormalizeTensor(
+                    mean=self.dataset_mean, std=self.dataset_std
+                ),
             ]
+        )
 
-            for i in range(len(self.model.head_dict)):
-                params.append({"params": self.model.head_dict[str(i)].parameters()})
-
-            self.optimizer = torch.optim.SGD(
-                params,
-                self.initial_lr,
-                momentum=config["momentum"],
-                weight_decay=config["weight_decay"],
-            )
-
-            torch.backends.cudnn.enabled = True
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cudnn.deterministic = True
+        self.train_loader = make_dataloader(
+            self.data_dir,
+            "train_affordance",
+            train_tf,
+            label_level=["dense", "point"],
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=config["workers"],
+            pin_memory=True,
+            drop_last=True,
+        )
 
         val_tf = TF.Compose(
             [
@@ -115,8 +85,23 @@ class CerberusMain:
             batch_size=1,
             shuffle=False,
             num_workers=config["workers"],
-            pin_memory=(self.mode == "train"),
+            pin_memory=True,
             drop_last=False,
+        )
+
+        params = [
+            {"params": self.model.pretrained.parameters()},
+            {"params": self.model.scratch.parameters()},
+        ]
+
+        for i in range(len(self.model.head_dict)):
+            params.append({"params": self.model.head_dict[str(i)].parameters()})
+
+        self.optimizer = torch.optim.SGD(
+            params,
+            self.initial_lr,
+            momentum=config["momentum"],
+            weight_decay=config["weight_decay"],
         )
 
         self.best_score = -1
@@ -142,15 +127,16 @@ class CerberusMain:
             print(f"Score: {checkpoint['score']}")
             print(f"Best Score: {self.best_score}")
 
+        torch.backends.cudnn.enabled = True
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = True
+
     def exec(self):
-        if self.mode == "train":
-            for epoch in range(self.start_epoch + 1, self.epochs + 1):
-                self.adjust_learning_rate(epoch - 1)
-                self.train(epoch)
-                score = self.validate(epoch)
-                self.save_checkpoint(epoch, score)
-        elif self.mode == "test":
-            self.validate(epoch)
+        for epoch in range(self.start_epoch + 1, self.epochs + 1):
+            self.adjust_learning_rate(epoch - 1)
+            self.train(epoch)
+            score = self.validate(epoch)
+            self.save_checkpoint(epoch, score)
 
     def adjust_learning_rate(self, epoch):
         # epoch in [0, self.epochs)
@@ -291,7 +277,6 @@ class CerberusMain:
             "epoch": epoch,
             "state_dict": self.model.state_dict(),
             "score": score,
-            "best_score": self.best_score,
         }
 
         checkpoint_path = os.path.join(save_dir, "checkpoint_latest.pth")
@@ -321,5 +306,5 @@ if __name__ == "__main__":
     yaml_path = args.config
     print("Config: " + yaml_path)
     if os.path.exists(yaml_path):
-        cerberus = CerberusMain(yaml_path)
-        cerberus.exec()
+        main = STRAP_FIRST(yaml_path)
+        main.exec()

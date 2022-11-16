@@ -4,7 +4,6 @@ import yaml
 import argparse
 import shutil
 from tqdm import tqdm
-from datetime import datetime
 import pickle
 import torch
 import torch.nn.functional as F
@@ -13,31 +12,22 @@ import skimage.segmentation
 import skimage.draw
 import skimage.morphology
 
-from dataset import make_dataloader
-import transform as TF
-from model import DPTAffordanceModel
+from datasets.dataset import make_dataloader
+import utils.transform as TF
+from models.model import DPTAffordanceModel
 
-from loss import bce_loss, gated_crf_loss
-from util import IoU, AverageMeter
+from utils.loss import bce_loss, gated_crf_loss
+from utils.util import IoU, AverageMeter
 
 
-class GenPseudoLabel:
+class STRAP_EM:
     def __init__(self, yaml_path):
         with open(yaml_path, "r") as fb:
             config = yaml.safe_load(fb)
 
-        self.save_dir = os.path.join(
-            config["save_dir"], datetime.now().strftime("%Y%m%d_%H%M%S")
-        )
+        self.save_dir = config["save_dir"]
         os.makedirs(self.save_dir, exist_ok=True)
         print(f"Save Dir: {os.path.abspath(self.save_dir)}")
-        shutil.copyfile(
-            yaml_path,
-            os.path.join(self.save_dir, f"archive_{os.path.basename(yaml_path)}"),
-        )
-        shutil.copyfile(
-            "main_gen.py", os.path.join(self.save_dir, "archive_main_gen.py")
-        )
 
         self.writer = SummaryWriter(log_dir=os.path.join(self.save_dir, "log"))
 
@@ -442,5 +432,5 @@ if __name__ == "__main__":
     yaml_path = args.config
     print("Config: " + yaml_path)
     if os.path.exists(yaml_path):
-        cerberus = GenPseudoLabel(yaml_path)
-        cerberus.exec()
+        main = STRAP_EM(yaml_path)
+        main.exec()

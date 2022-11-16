@@ -1,10 +1,10 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from util import IoU, AverageMeter
-from model import DPTAffordanceModel
-import transform as TF
-from dataset import make_dataloader
+from utils.util import IoU, AverageMeter
+from models.model import DPTAffordanceModel
+import utils.transform as TF
+from datasets.dataset import make_dataloader
 
 torch.set_grad_enabled(False)
 

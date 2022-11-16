@@ -1,6 +1,4 @@
-mode: "train"
-
-data_dir: "../dataset/cad120/actor"
+data_dir: ""
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
@@ -26,7 +24,7 @@ lr: 0.001
 momentum: 0.9
 weight_decay: 0.0001
 
-save_dir: "output"
+save_dir: ""
 
-resume: "ignore_archive/actor/hc_refine/model/checkpoint_latest.pth"
-restart: true
+resume: ""
+restart: false

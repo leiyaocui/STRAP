@@ -1,6 +1,4 @@
-mode: "train"
-
-data_dir: "../dataset/cad120/object"
+data_dir: ""
 
 affordance:
   ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
@@ -13,7 +11,7 @@ crf:
     -
       weight: 1
       xy: 20
-      image: 0.01
+      image: 0.1
 
 dataset_mean: [132.2723, 106.8666, 112.8962]
 dataset_std: [68.9081, 71.0827, 72.8808]
@@ -26,7 +24,7 @@ lr: 0.001
 momentum: 0.9
 weight_decay: 0.0001
 
-save_dir: "output"
+save_dir: ""
 
 resume: ""
 restart: false

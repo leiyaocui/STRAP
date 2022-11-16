@@ -1,8 +1,8 @@
 from torch import nn
 import torch.nn.functional as F
 
-from vit import _make_pretrained_vitb_rn50_384, forward_vit
-from hierarchical_head import HierarchicalHead
+from models.vit import _make_pretrained_vitb_rn50_384, forward_vit
+from models.cri_head import CRI
 
 
 class DPT(nn.Module):
@@ -68,7 +68,7 @@ class DPTAffordanceModel(DPT):
         if use_hf:
             self.hierarchical_head = nn.Sequential(
                 nn.Flatten(1, -1),
-                HierarchicalHead(features * 160 * 160, tuple([num_objects, self.num_classes]))
+                CRI(features * 160 * 160, tuple([num_objects, self.num_classes]))
             )
 
     def forward(self, x, with_hc=False):
