@@ -4,7 +4,7 @@ This is an official implementation of STRAP: Structured Object Affordance Segmen
 
 ## Installation
 
-### Requirents
+### Requirments
 
 We have verified our codebase by pytorch == 1.12.1 with CUDA == 11.6 in python == 3.8.10, the following are requirements.
 
