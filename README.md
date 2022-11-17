@@ -84,8 +84,6 @@ resume = "./model.pth"
 
 ## Pre-trained Models
 
-TODO::
-
 | Split  | mIoU | URL |
 | ------ | ---- | --- |
 | Object |      |     |
