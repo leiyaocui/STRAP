@@ -122,7 +122,7 @@ class STRAP_EM:
 
         for i in range(self.num_class):
             params.append({"params": self.model.head_dict[str(i)].parameters()})
-        params.append({"params": self.model.hierarchical_head.parameters()})
+        params.append({"params": self.model.CRI_head.parameters()})
 
         self.optimizer = torch.optim.SGD(
             params,
@@ -188,8 +188,8 @@ class STRAP_EM:
                 torch.stack(data["visible_info"], dim=1).cuda(non_blocking=True).float()
             )
 
-            output, output_h = self.model(input, with_hc=True)
-            output_h = output_h[-1]
+            output, output_concepts = self.model(input, with_hc=True)
+            output_concepts = output_concepts[-1]
 
             pred = []
             for i in range(self.num_class):
@@ -223,7 +223,7 @@ class STRAP_EM:
                 l = l_ce + l_crf
                 loss.append(l)
             loss = sum(loss)
-            loss += F.binary_cross_entropy_with_logits(output_h, visible_info)
+            loss += F.binary_cross_entropy_with_logits(output_concepts, visible_info)
 
             self.optimizer.zero_grad()
             loss.backward()

@@ -8,16 +8,16 @@ from datasets.dataset import make_dataloader
 
 torch.set_grad_enabled(False)
 
-task = ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
-split_mode = "actor"
+affordance = ["openable", "cuttable", "pourable", "containable", "supportable", "holdable"]
+split_mode = "object"
 mode = "val"
 print(split_mode)
 print(mode)
-resume_path = "ignore_archive/actor/hc_refine/model/checkpoint_latest.pth"
+resume_path = "outputs/20221116_201243/first_stage/model/model_best.pth"
 print(resume_path)
 
 num_objects = 12
-model = DPTAffordanceModel(num_objects, len(task), use_hf=True).cuda()
+model = DPTAffordanceModel(num_objects, len(affordance), use_hf=True).cuda()
 ckpt = torch.load(resume_path, map_location=lambda storage, loc: storage)
 model.load_state_dict(
     {
@@ -31,11 +31,9 @@ model.eval()
 print(f"Score: {ckpt['score']}")
 
 if split_mode == "object":
-    # # object split
     mean = [132.2723, 106.8666, 112.8962]
     std = [67.4025, 70.7446, 72.1553]
 elif split_mode == "actor":
-    # actor split
     mean = [136.5133, 108.5417, 113.0168]
     std = [67.4025, 70.7446, 72.1553]
 else:
@@ -61,20 +59,20 @@ loader = make_dataloader(
 )
 
 score_meter = AverageMeter()
-score_per_class_meter = [AverageMeter() for _ in range(len(task))]
+score_per_class_meter = [AverageMeter() for _ in range(len(affordance))]
 
 for data in tqdm(loader):
     input = data["image"].cuda(non_blocking=True)
     target = data["dense_label"]
-    for i in range(len(task)):
+    for i in range(len(affordance)):
         target[i] = target[i].cuda(non_blocking=True)
     output = model(input)
     pred = []
-    for i in range(len(task)):
+    for i in range(len(affordance)):
         pred.append((output[i].detach() > 0).int())
 
     score = []
-    for i in range(len(task)):
+    for i in range(len(affordance)):
         score_per_class = IoU(
             pred[i],
             target[i],
@@ -91,5 +89,5 @@ for data in tqdm(loader):
 
 for i, it in enumerate(score_per_class_meter):
     iou = score_per_class_meter[i].get()
-    print(f"{task[i]}: {iou:.2f}")
+    print(f"{affordance[i]}: {iou:.2f}")
 print(f"mIoU: {score_meter.get():.2f}")

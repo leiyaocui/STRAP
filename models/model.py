@@ -66,7 +66,7 @@ class DPTAffordanceModel(DPT):
             self.head_dict[str(i)] = _make_head(features)
 
         if use_hf:
-            self.hierarchical_head = nn.Sequential(
+            self.CRI_head = nn.Sequential(
                 nn.Flatten(1, -1),
                 CRI(features * 160 * 160, tuple([num_objects, self.num_classes]))
             )
@@ -91,8 +91,8 @@ class DPTAffordanceModel(DPT):
             output.append(out)
 
         if with_hc:
-            output_h = self.hierarchical_head(path_1)
-            return output, output_h
+            output_concepts = self.CRI_head(path_1)
+            return output, output_concepts
         else:
             return output
 

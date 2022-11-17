@@ -1,10 +1,12 @@
 #!/bin/bash
 
-### VARIABLES NEED CUSTOMIZING
+# You should select a split mode of CAD120 dataset. (object or actor)
 SPLIT_MODE="object"
+# You need to assign your dataset's root path which is preprocessed by what mentioned above.
 DATASET_ROOT_PATH="../dataset/cad120"
+ # You can choose where to store the output of training.
 OUTPUT_PATH_NAME="outputs"
-###
+
 
 DATASET_SPLIT_PATH="${DATASET_ROOT_PATH}/${SPLIT_MODE}"
 CURRENT_PATH="$(pwd)"

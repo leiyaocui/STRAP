@@ -2,9 +2,9 @@
 
 This is an official implementation of STRAP: Structured Object Affordance Segmentation with Point Supervision.
 
-## Requirements
+## Installation
 
-### Environments
+### Requirents
 
 We have verified our codebase by pytorch == 1.12.1 with CUDA == 11.6 in python == 3.8.10, the following are requirements.
 
@@ -20,13 +20,13 @@ timm==0.6.7
 tqdm==4.64.0
 ```
 
-### Dataset
+### Data Preprocessing
 
-#### CAD120
+#### Step 1
 
-- Download CAD120 affordance dataset from [here](https://zenodo.org/record/495570) and point annotations are stored in `./data_preprocess/CAD120/keypoints.txt`.
+Download CAD120 affordance dataset from [here](https://zenodo.org/record/495570) and point annotations are stored in `./data_preprocess/CAD120/keypoints.txt`.
 
-#### Data Preprocessing
+#### Step 2
 
 Use `./datasets/CAD120/generate.py` to preprocess the dataset. In the meanwhile, modify the script to customize your own path.
 
@@ -52,14 +52,50 @@ cad120
 
 ### Step 1
 
-You need to modify the `train_cad120_object.yaml` or `train_cad120_actor.yaml` to customize your dataset path by configuring the `data_dir`.
+Before starting your training, you need to modify some variables in `train.sh`. The following are some details.
+
+```
+# You should select a split mode of CAD120 dataset. (object or actor)
+SPLIT_MODE="object"
+# You should assign your dataset's root path which is preprocessed by what mentioned above.
+DATASET_ROOT_PATH="../dataset/cad120"
+ # You can choose where to store the output of training.
+OUTPUT_PATH_NAME="outputs"
+```
 
 ### Step 2
 
-You can use
+Use `sh train.sh` in terminal to start your training.
+
+## Evaluation
+
+We provide a jupyter notebook `visualize.ipynb` to get a visualized results.
+
+The variables which you need to customize are shown as follows.
 
 ```
-python <script> --config <configuration>
+# You should select a split mode of CAD120 dataset. (object or actor)
+split_mode = "object"
+# You should assign your dataset's root path which is preprocessed by what mentioned above.
+dataset_root_path = "../dataset/cad120"
+# You should assign the path of your pre-trained model.
+resume = "./model.pth"
 ```
 
-to start to training. The options of `<script>` include `main.py`, `main_hc.py`, ~
+## Pre-trained Models
+
+TODO::
+
+### On CAD120's Actor Split
+
+| Training Stage | mIoU | URL |
+| -------------- | ---- | --- |
+| First Stage    |      |     |
+| Second Stage   |      |     |
+| EM Stage       |      |     |
+
+## Acknowledgments
+
+The point annotations of CAD120 dataset are duplicated from [keypoints.txt](https://github.com/ykztawas/Weakly-Supervised-Affordance-Detection/blob/master/weakly_supervised_affordance_detection_master/expectation_step/keypoints.txt).
+
+Parts of code are on based on the [Cerberus](https://github.com/OPEN-AIR-SUN/Cerberus) and [BINN](https://github.com/daveboat/structured_label_inference).
