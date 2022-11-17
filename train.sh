@@ -4,10 +4,11 @@
 SPLIT_MODE="object"
 # You need to assign your dataset's root path which is preprocessed by what mentioned above.
 DATASET_ROOT_PATH="../dataset/cad120"
- # You can choose where to store the output of training.
+# You can choose where to store the output of training.
 OUTPUT_PATH_NAME="outputs"
 
 
+# PREPARATION FOR CONFIGS
 DATASET_SPLIT_PATH="${DATASET_ROOT_PATH}/${SPLIT_MODE}"
 CURRENT_PATH="$(pwd)"
 TIME=$(date "+%Y%m%d_%H%M%S")
@@ -23,7 +24,6 @@ else
   exit 1
 fi
 
-### THE FIRST STAGE
 FIRST_STAGE_PATH="${OUTPUT_PATH}/first_stage"
 
 mkdir -p "${FIRST_STAGE_PATH}"
@@ -40,15 +40,6 @@ sed -i "s,resume: \".*\",resume: \"\"," \
 sed -i "s,restart: true,restart: false," \
        "${FIRST_STAGE_PATH}/first.yaml"
 
-python "${PWD}/first_stage.py" --config "${FIRST_STAGE_PATH}/first.yaml"
-if [ $? -ne 0 ]; then
-  echo "first_stage.py throws some exceptions."
-  echo "All processes will exit."
-  exit 1
-fi
-
-
-### THE SECOND STAGE
 SECOND_STAGE_PATH="${OUTPUT_PATH}/second_stage"
 
 mkdir -p "${SECOND_STAGE_PATH}"
@@ -63,15 +54,6 @@ sed -i "s,resume: \".*\",resume: \"${FIRST_STAGE_PATH}/model/checkpoint_latest.p
 sed -i "s,restart: false,restart: true," \
        "${SECOND_STAGE_PATH}/second.yaml"
 
-python "${PWD}/second_stage.py" --config "${SECOND_STAGE_PATH}/second.yaml"
-if [ $? -ne 0 ]; then
-  echo "second_stage.py throws some exceptions."
-  echo "All processes will exit."
-  exit 1
-fi
-
-
-### THE EM STAGE
 EM_STAGE_PATH="${OUTPUT_PATH}/em_stage"
 
 mkdir -p "${EM_STAGE_PATH}"
@@ -86,6 +68,26 @@ sed -i "s,resume: \".*\",resume: \"${SECOND_STAGE_PATH}/model/checkpoint_latest.
 sed -i "s,restart: false,restart: true," \
        "${EM_STAGE_PATH}/em.yaml"
 
+
+# THE FIRST STAGE
+python "${PWD}/first_stage.py" --config "${FIRST_STAGE_PATH}/first.yaml"
+if [ $? -ne 0 ]; then
+  echo "first_stage.py throws some exceptions."
+  echo "All processes will exit."
+  exit 1
+fi
+
+
+# THE SECOND STAGE
+python "${PWD}/second_stage.py" --config "${SECOND_STAGE_PATH}/second.yaml"
+if [ $? -ne 0 ]; then
+  echo "second_stage.py throws some exceptions."
+  echo "All processes will exit."
+  exit 1
+fi
+
+
+# THE EM STAGE
 python "${PWD}/em_stage.py" --config "${EM_STAGE_PATH}/em.yaml"
 if [ $? -ne 0 ]; then
   echo "em_stage.py throws some exceptions."
