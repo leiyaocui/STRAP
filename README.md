@@ -86,13 +86,10 @@ resume = "./model.pth"
 
 TODO::
 
-### On CAD120's Actor Split
-
-| Training Stage | mIoU | URL |
-| -------------- | ---- | --- |
-| First Stage    |      |     |
-| Second Stage   |      |     |
-| EM Stage       |      |     |
+| Split  | mIoU | URL |
+| ------ | ---- | --- |
+| Object |      |     |
+| Actor  |      |     |
 
 ## Acknowledgments
 
