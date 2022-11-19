@@ -4,7 +4,7 @@ This is an official implementation of STRAP: Structured Object Affordance Segmen
 
 ## Installation
 
-### Requirments
+### Requirements
 
 We have verified our codebase by pytorch == 1.12.1 with CUDA == 11.6 in python == 3.8.10, the following are requirements.
 
@@ -80,6 +80,8 @@ split_mode = "object"
 dataset_root_path = "../dataset/cad120"
 # You should assign the path of your pre-trained model.
 resume = "./model.pth"
+# And the basename of a file.
+file_name = "10001_1"
 ```
 
 ## Pre-trained Models

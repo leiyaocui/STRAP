@@ -1,3 +1,5 @@
 .vscode
+.history
 __pycache__
 outputs
+archives
