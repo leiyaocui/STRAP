@@ -1,6 +1,6 @@
 # STRAP: Structured Object Affordance Segmentation with Point Supervision
 
-Leiyao Cui, Xiaoxue Chen, Hao Zhao, Guyue Zhou, Yixin Zhu.
+Leiyao Cui, Xiaoxue Chen, Hao Zhao, Guyue Zhou, Yixin Zhu
 
 This is an official implementation of STRAP: Structured Object Affordance Segmentation with Point Supervision.
 
