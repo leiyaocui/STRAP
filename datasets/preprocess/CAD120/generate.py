@@ -106,6 +106,20 @@ def gen_keypoint_list(cad120_path, save_path, split_mode):
     with open(yaml_path, "w") as fb:
         yaml.safe_dump(keypoint_dict, fb)
 
+    keypoint_dict = dict()
+
+    for line in tqdm(open(f"test_{split_mode}_split_id.txt", "r"), ncols=80):
+        file_id = line.strip()
+
+        visible_info = visible_info_dict[file_id]
+        keypoint_dict[file_id] = get_keypoint(
+            keypoints, visible_info, file_id, num_classes=6
+        )
+
+    yaml_path = os.path.join(save_path, "val_affordance_keypoint.yaml")
+    with open(yaml_path, "w") as fb:
+        yaml.safe_dump(keypoint_dict, fb)
+
 
 def gen_dataset(cad120_path, save_path, split_mode):
     os.makedirs(save_path, exist_ok=True)
@@ -183,9 +197,9 @@ def gen_dataset(cad120_path, save_path, split_mode):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
-    split_mode = "object" # the split mode of CAD120 dataset (object or actor)
-    source_path = "../CAD120" # the root path of CAD120 dataset
-    output_path = os.path.join("../cad120", split_mode) # the path you choose to store the output
+    split_mode = "actor" # the split mode of CAD120 dataset (object or actor)
+    source_path = "/home/aidrive/cuily/dataset/CAD120" # the root path of CAD120 dataset
+    output_path = os.path.join("/home/aidrive/cuily/dataset/cad120", split_mode) # the path you choose to store the output
 
     if os.path.exists(output_path):
         shutil.rmtree(output_path)

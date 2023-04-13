@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # You should select a split mode of CAD120 dataset. (object or actor)
-SPLIT_MODE="object"
-# You need to assign your dataset's root path which is preprocessed by what mentioned above.
-DATASET_ROOT_PATH="../dataset/cad120"
+SPLIT_MODE=""
+# You need to assign your preprocessed dataset's root path.
+DATASET_ROOT_PATH=""
 # You can choose where to store the output of training.
-OUTPUT_PATH_NAME="outputs"
+OUTPUT_PATH_NAME=""
 
 
 # PREPARATION FOR CONFIGS
@@ -78,6 +78,7 @@ if [ $? -ne 0 ]; then
 fi
 
 
+python -m torch.distributed.launch --use_env --nnodes=1 --nproc_per_node=4 first_stage.py --config=first.yaml
 # THE SECOND STAGE
 python "${PWD}/second_stage.py" --config "${SECOND_STAGE_PATH}/second.yaml"
 if [ $? -ne 0 ]; then
@@ -87,7 +88,7 @@ if [ $? -ne 0 ]; then
 fi
 
 
-# THE EM STAGE
+# THE THIRD STAGE
 python "${PWD}/em_stage.py" --config "${EM_STAGE_PATH}/em.yaml"
 if [ $? -ne 0 ]; then
   echo "em_stage.py throws some exceptions."

@@ -37,7 +37,7 @@ class Transpose(nn.Module):
         self.dim1 = dim1
 
     def forward(self, x):
-        x = x.transpose(self.dim0, self.dim1)
+        x = x.transpose(self.dim0, self.dim1).contiguous()
         return x
 
 
@@ -93,11 +93,11 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
 
     gs_old = int(math.sqrt(len(posemb_grid)))
 
-    posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2)
+    posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2).contiguous()
     posemb_grid = F.interpolate(
         posemb_grid, size=(gs_h, gs_w), mode="bilinear", align_corners=False
     )
-    posemb_grid = posemb_grid.permute(0, 2, 3, 1).reshape(1, gs_h * gs_w, -1)
+    posemb_grid = posemb_grid.permute(0, 2, 3, 1).contiguous().reshape(1, gs_h * gs_w, -1)
 
     posemb = torch.cat([posemb_tok, posemb_grid], dim=1)
 

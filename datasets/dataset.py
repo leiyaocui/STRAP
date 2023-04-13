@@ -2,7 +2,7 @@ import os
 import yaml
 from PIL import Image
 import pickle
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 
 class CustomDataset(Dataset):
@@ -84,9 +84,9 @@ class CustomDataset(Dataset):
         return len(self.image_list)
 
 
-def make_dataloader(
-    data_dir, phase, transforms, label_level, pseudo_label_dir=None, **kargs
+def make_dataset(
+    data_dir, phase, transforms, label_level, pseudo_label_dir=None
 ):
     dataset = CustomDataset(data_dir, phase, transforms, label_level, pseudo_label_dir)
 
-    return DataLoader(dataset, **kargs)
+    return dataset

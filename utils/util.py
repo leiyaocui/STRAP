@@ -1,14 +1,15 @@
 import numpy as np
 import torch
+import torch.distributed as dist
 
 
 class AverageMeter:
     def __init__(self):
         self.reset()
 
-    def reset(self):
-        self.value = 0.0
-        self.count = 0.0
+    def reset(self, value=0.0, count=0.0):
+        self.value = value
+        self.count = count
 
     def update(self, value, count):
         self.value += value * count
@@ -16,6 +17,24 @@ class AverageMeter:
 
     def get(self):
         return self.value / self.count
+
+
+@torch.no_grad()
+def reduce_dict(data_dict, local_rank):
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return data_dict
+
+    key_list = list(sorted(data_dict.keys()))
+    value_list = [torch.as_tensor(data_dict[k]).cuda(local_rank) for k in key_list]
+
+    value_list = torch.stack(value_list, dim=0)
+    dist.all_reduce(value_list)
+    value_list /= world_size
+
+    reduced_dict = {k: v for k, v in zip(key_list, value_list)}
+
+    return reduced_dict
 
 
 np.seterr(invalid="ignore")

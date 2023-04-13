@@ -122,7 +122,7 @@ class STRAP_EM:
 
         for i in range(self.num_class):
             params.append({"params": self.model.head_dict[str(i)].parameters()})
-        params.append({"params": self.model.CRI_head.parameters()})
+        params.append({"params": self.model.LAI_head.parameters()})
 
         self.optimizer = torch.optim.SGD(
             params,

@@ -97,7 +97,7 @@ class STRAP_SECOND:
 
         for i in range(len(self.model.head_dict)):
             params.append({"params": self.model.head_dict[str(i)].parameters()})
-        params.append({"params": self.model.CRI_head.parameters()})
+        params.append({"params": self.model.LAI_head.parameters()})
 
         self.optimizer = torch.optim.SGD(
             params,

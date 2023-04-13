@@ -2,7 +2,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from models.vit import _make_pretrained_vitb_rn50_384, forward_vit
-from models.cri_head import CRI
+from models.lai_head import LAI
 
 
 class DPT(nn.Module):
@@ -66,9 +66,9 @@ class DPTAffordanceModel(DPT):
             self.head_dict[str(i)] = _make_head(features)
 
         if use_hf:
-            self.CRI_head = nn.Sequential(
+            self.LAI_head = nn.Sequential(
                 nn.Flatten(1, -1),
-                CRI(features * 160 * 160, tuple([num_objects, self.num_classes]))
+                LAI(features * 160 * 160, tuple([num_objects, self.num_classes]))
             )
 
     def forward(self, x, with_hc=False):
@@ -91,7 +91,7 @@ class DPTAffordanceModel(DPT):
             output.append(out)
 
         if with_hc:
-            output_concepts = self.CRI_head(path_1)
+            output_concepts = self.LAI_head(path_1)
             return output, output_concepts
         else:
             return output

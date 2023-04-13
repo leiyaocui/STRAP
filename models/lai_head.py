@@ -46,7 +46,7 @@ class LinearDual(nn.Module):
         )
 
 
-class CRI(nn.Module):
+class LAI(nn.Module):
 
     def __init__(self, length, layer_nodes):
         """
