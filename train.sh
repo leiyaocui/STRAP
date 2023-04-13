@@ -78,7 +78,6 @@ if [ $? -ne 0 ]; then
 fi
 
 
-python -m torch.distributed.launch --use_env --nnodes=1 --nproc_per_node=4 first_stage.py --config=first.yaml
 # THE SECOND STAGE
 python "${PWD}/second_stage.py" --config "${SECOND_STAGE_PATH}/second.yaml"
 if [ $? -ne 0 ]; then
