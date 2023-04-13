@@ -31,19 +31,11 @@ tqdm==4.64.0
 
 #### Step 1
 
-<<<<<<< HEAD
 Download the CAD120 affordance dataset from [here](https://zenodo.org/record/495570). All point annotations are stored in `./data_preprocess/CAD120/keypoints.txt`.
 
 #### Step 2
 
 Use `./datasets/CAD120/generate.py` to preprocess the dataset. Meanwhile, modify the script to customize your own path.
-=======
-Download CAD120 affordance dataset from [here](https://zenodo.org/record/495570) and point annotations are stored in `./datasets/preprocess/CAD120/keypoints.txt`.
-
-#### Step 2
-
-Use `./datasets/preprocess/CAD120/generate.py` to preprocess the dataset. In the meanwhile, modify the script to customize your own path.
->>>>>>> a66fbf1b9f8e0c5ea87f4d86cf4a8a5b15889210
 
 The dataset after preprocessing is similar to the following.
 
@@ -101,20 +93,27 @@ file_name = "10001_1"
 
 ## Pre-trained Models
 
-| Split | Stage | Epoch | mIoU | URL |
-| :----: | :----: | :---: | ---- | --- |
-| object | first |  100  |      |     |
-| object | second |  100  |      |     |
-| object | third |  100  |      |     |
-| object | first | BEST |      |     |
-| object | second | BEST |      |     |
-| object | third | BEST |      |     |
-| acotr | first |  100  |      |     |
-| acotr | second |  100  |      |     |
-| acotr | third |  100  |      |     |
-| acotr | first | BEST |      |     |
-| acotr | second | BEST |      |     |
-| acotr | third | BEST |      |     |
+### Object Split
+
+| Stage | Epoch | URL                                                                                      |
+| :----: | :---: | ---------------------------------------------------------------------------------------- |
+| first |  100  | [first_100.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/object/first_100.pth)     |
+| second |  100  | [second_100.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/object/second_100.pth)   |
+| third |  100  | [third_100.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/object/third_100.pth)     |
+| first | BEST | [first_best.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/object/first_best.pth)   |
+| second | BEST | [second_best.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/object/second_best.pth) |
+| third | BEST | [third_best.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/object/third_best.pth)   |
+
+### Actor Split
+
+| Stage | Epoch | URL                                                                                     |
+| :----: | :---: | --------------------------------------------------------------------------------------- |
+| first |  100  | [first_100.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/actor/first_100.pth)     |
+| second |  100  | [second_100.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/actor/second_100.pth)   |
+| third |  100  | [third_100.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/actor/third_100.pth)     |
+| first | BEST | [first_best.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/actor/first_best.pth)   |
+| second | BEST | [second_best.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/actor/second_best.pth) |
+| third | BEST | [third_best.pth](https://huggingface.co/Leiyao-Cui/STRAP/blob/main/actor/third_best.pth)   |
 
 ## Acknowledgments
 
